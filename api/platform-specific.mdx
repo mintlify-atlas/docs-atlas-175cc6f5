@@ -1,0 +1,142 @@
+---
+title: "Platform-specific functions for Apple and Android"
+description: "Access native platform objects — MTKView, UIViewController, NSViewController, and ANativeActivity — through GLFM's platform-specific functions."
+---
+
+GLFM provides a small set of platform-specific functions that give you direct access to the underlying native objects powering the display. These are useful when you need to integrate third-party SDKs, configure platform features that GLFM does not expose, or interop with native Objective-C or Java/JNI code.
+
+## Metal support detection
+
+`glfmIsMetalSupported` can be called on any platform and returns whether Metal is available. It does not require the surface to be created first.
+
+```c
+bool glfmIsMetalSupported(const GLFMDisplay *display);
+```
+
+Returns `true` on Apple platforms that support Metal, `false` everywhere else (Android, Emscripten, and Apple devices where Metal is unavailable).
+
+---
+
+## Compile-time macros
+
+To write cross-platform code that conditionally uses native functions, GLFM provides two preprocessor macros.
+
+| Macro | Effect |
+|---|---|
+| `GLFM_EXPOSE_NATIVE_APPLE` | Makes the Apple-specific functions available even when compiling outside of an Apple environment. |
+| `GLFM_EXPOSE_NATIVE_ANDROID` | Makes the Android-specific function available even when compiling outside of an Android environment. |
+
+Define the relevant macro before including `glfm.h`:
+
+```c
+#define GLFM_EXPOSE_NATIVE_APPLE
+#define GLFM_EXPOSE_NATIVE_ANDROID
+#include "glfm.h"
+```
+
+<Note>
+Without these macros, the Apple and Android function declarations are only visible when the header is compiled on their respective platforms (`__APPLE__` or `__ANDROID__` must be defined).
+</Note>
+
+---
+
+## Platform-specific native access
+
+<Warning>
+All native-access functions below return valid pointers only **after the surface has been created**. Do not call them before your `GLFMSurfaceCreatedFunc` callback fires. Calling them earlier returns `NULL`.
+</Warning>
+
+<Tabs>
+  <Tab title="Apple">
+    The following functions are available when `__APPLE__` is defined (iOS, tvOS, macOS) or when `GLFM_EXPOSE_NATIVE_APPLE` is defined.
+
+    ### `glfmGetMetalView`
+
+    Returns a pointer to the `MTKView` instance used to render Metal content.
+
+    ```c
+    void *glfmGetMetalView(const GLFMDisplay *display);
+    ```
+
+    Returns `NULL` if Metal is not available on the current device. Cast the returned pointer to `MTKView *` in Objective-C:
+
+    ```objc
+    #import <MetalKit/MetalKit.h>
+
+    MTKView *metalView = (__bridge MTKView *)glfmGetMetalView(display);
+    if (metalView) {
+        // Configure Metal-specific properties
+        metalView.preferredFramesPerSecond = 60;
+    }
+    ```
+
+    ---
+
+    ### `glfmGetViewController`
+
+    Returns a pointer to the view controller managing the GLFM display.
+
+    ```c
+    void *glfmGetViewController(const GLFMDisplay *display);
+    ```
+
+    - On **iOS** and **tvOS**, the returned object is a `UIViewController`.
+    - On **macOS**, the returned object is an `NSViewController`.
+
+    Cast the pointer to the appropriate type in Objective-C:
+
+    ```objc
+    #if TARGET_OS_OSX
+    #import <AppKit/AppKit.h>
+    NSViewController *vc = (__bridge NSViewController *)glfmGetViewController(display);
+    #else
+    #import <UIKit/UIKit.h>
+    UIViewController *vc = (__bridge UIViewController *)glfmGetViewController(display);
+    #endif
+
+    // Example: present a native view controller
+    [vc presentViewController:myNativeVC animated:YES completion:nil];
+    ```
+
+    <Tip>
+    If you need to present native UI (such as `UIAlertController`, `SKStoreReviewController`, or `AVPlayerViewController`), `glfmGetViewController` gives you the presenting view controller without any additional setup.
+    </Tip>
+  </Tab>
+
+  <Tab title="Android">
+    The following function is available when `__ANDROID__` is defined or when `GLFM_EXPOSE_NATIVE_ANDROID` is defined.
+
+    ### `glfmGetAndroidActivity`
+
+    Returns a pointer to the `ANativeActivity` instance associated with the GLFM display.
+
+    ```c
+    void *glfmGetAndroidActivity(const GLFMDisplay *display);
+    ```
+
+    Cast the returned pointer to `ANativeActivity *`:
+
+    ```c
+    #include <android/native_activity.h>
+
+    ANativeActivity *activity = (ANativeActivity *)glfmGetAndroidActivity(display);
+    if (activity) {
+        JNIEnv *env = activity->env;
+        jobject javaActivity = activity->clazz;
+
+        // Call a Java method via JNI
+        jclass cls = (*env)->GetObjectClass(env, javaActivity);
+        jmethodID mid = (*env)->GetMethodID(env, cls, "myMethod", "()V");
+        (*env)->CallVoidMethod(env, javaActivity, mid);
+    }
+    ```
+
+    <Warning>
+    The `ANativeActivity` pointer **may be invalidated when the surface is destroyed**. Do not cache the pointer across surface lifecycle events. If you store a reference to the `ANativeActivity`, refresh it by calling `glfmGetAndroidActivity` again inside your `GLFMSurfaceCreatedFunc` or `GLFMAppFocusFunc` callback.
+    </Warning>
+
+    <Note>
+    `glfmAndroidGetActivity` is deprecated. Replace all calls with `glfmGetAndroidActivity(display)`.
+    </Note>
+  </Tab>
+</Tabs>

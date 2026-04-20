@@ -1,0 +1,131 @@
+---
+title: "Build GLFM apps for Android with Android Studio"
+description: "Integrate GLFM's CMakeLists.txt into Android Studio via external native build, configure AndroidManifest.xml, and run on a device or emulator."
+---
+
+There is no dedicated CMake generator for Android Studio projects, but GLFM's `CMakeLists.txt` can be included directly in a new or existing project using Android Studio's external native build support. The steps below walk through creating a fresh project and wiring in GLFM's CMake configuration to build and run the bundled examples.
+
+<Warning>
+  GLFM is not thread-safe. All GLFM functions must be called on the main thread — that is, from `glfmMain` or from any GLFM callback function. Calling GLFM functions from background threads will produce undefined behavior.
+</Warning>
+
+## Build steps
+
+<Steps>
+  <Step title="Create a new Android Studio project">
+    Open Android Studio and select **File → New → New Project** (or **Start a new Android Studio project** from the welcome screen).
+
+    On the template picker, select **No Activity**, then click **Next**.
+  </Step>
+
+  <Step title="Configure the project location">
+    In the **Save location** field, enter the path where you want the Android project to live. To keep it inside the GLFM source tree, use:
+
+    ```
+    [path/to/glfm]/build/android
+    ```
+
+    Fill in any other fields as needed, then click **Finish**.
+  </Step>
+
+  <Step title="Edit AndroidManifest.xml">
+    Open `app/src/main/AndroidManifest.xml` and replace its contents with the following. This registers a `NativeActivity` that loads the GLFM example shared library:
+
+    ```xml
+    <?xml version="1.0" encoding="utf-8"?>
+    <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+        <uses-feature android:glEsVersion="0x00020000" android:required="true" />
+
+        <application
+            android:allowBackup="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/app_name"
+            android:supportsRtl="true">
+
+            <activity android:name="android.app.NativeActivity"
+                      android:exported="true"
+                      android:configChanges="orientation|screenLayout|screenSize|keyboardHidden|keyboard">
+                <meta-data
+                    android:name="android.app.lib_name"
+                    android:value="glfm_touch" />
+                <intent-filter>
+                    <action android:name="android.intent.action.MAIN"/>
+                    <category android:name="android.intent.category.LAUNCHER"/>
+                </intent-filter>
+            </activity>
+        </application>
+
+    </manifest>
+    ```
+
+    The `android.app.lib_name` value controls which example is loaded. Replace `glfm_touch` with any of the available targets:
+
+    | Value | Description |
+    |-------|-------------|
+    | `glfm_triangle` | Basic OpenGL ES triangle |
+    | `glfm_touch` | Touch input demo |
+    | `glfm_heightmap` | 3D heightmap example |
+    | `glfm_typing` | Keyboard / text input demo |
+    | `glfm_compass` | Sensor / compass demo |
+    | `glfm_test_pattern` | Display test pattern |
+  </Step>
+
+  <Step title="Edit app/build.gradle">
+    Open `app/build.gradle` and add the `externalNativeBuild` and `sourceSets.main` sections as shown below. Key settings are called out in the comments:
+
+    ```gradle
+    apply plugin: 'com.android.application'
+
+    android {
+        compileSdkVersion 34
+        ndkVersion '23.2.8568313' // Last version to support API 16, 17, 18
+        defaultConfig {
+            applicationId "com.brackeen.glfmexample"
+            minSdkVersion 16
+            targetSdkVersion 34
+            versionCode 1
+            versionName "1.0"
+
+            // Add externalNativeBuild in defaultConfig (1/2)
+            externalNativeBuild {
+                cmake {
+                    arguments "-DGLFM_BUILD_EXAMPLES=ON"
+                }
+            }
+        }
+
+        // Add sourceSets.main and externalNativeBuild (2/2)
+        sourceSets.main {
+            assets.srcDirs = ["../../../examples/assets"]
+        }
+        externalNativeBuild {
+            cmake {
+                path "../../../CMakeLists.txt"
+            }
+        }
+        namespace 'com.brackeen.glfmexample'
+    }
+    ```
+
+    <Note>
+      The `ndkVersion '23.2.8568313'` is the last NDK version that supports API levels 16, 17, and 18. If you only need to target API 19+, you can use a newer NDK version.
+    </Note>
+  </Step>
+
+  <Step title="Sync and run">
+    Click **Sync Now** in the notification bar that appears after editing `build.gradle`. Once the Gradle sync finishes, click **Run 'app'** (Shift + F10) to build and deploy to a connected device or emulator.
+  </Step>
+</Steps>
+
+## Minimum SDK version
+
+GLFM targets **Android 4.1 (API 16)** as its minimum supported version. The `minSdkVersion 16` in `build.gradle` reflects this. GLFM uses `android.app.NativeActivity` which is available from API 9 onwards, but API 16 is the practical minimum for GLFM's feature set.
+
+<Info>
+  OpenGL ES 3.1 and 3.2 support is only available on Android. iOS and tvOS support OpenGL ES 2 and 3, and WebGL targets OpenGL ES 2 (WebGL 1.0).
+</Info>
+
+## Release builds and NDEBUG
+
+GLFM includes debug logging (via `GLFM_LOG`) that is compiled away when `NDEBUG` is defined. Android Studio automatically defines `NDEBUG` for release build variants, so no extra configuration is needed. In debug builds, log output is tagged `GLFM` and visible in Android Studio's Logcat.

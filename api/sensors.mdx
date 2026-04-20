@@ -1,0 +1,240 @@
+---
+title: "GLFM sensor and haptic feedback function reference"
+description: "Reference for glfmIsSensorAvailable, glfmSetSensorFunc, and GLFMSensorEvent, plus glfmIsHapticFeedbackSupported and glfmPerformHapticFeedback platform notes."
+---
+
+GLFM provides access to four hardware sensors and a haptic feedback API. Sensors are disabled by default and activated by registering a callback. Each sensor type has its own independent callback, so you can enable only the sensors you need and disable them when not in use to conserve battery.
+
+## Sensors
+
+### `GLFMSensor`
+
+Identifies the hardware sensor type.
+
+| Value | Description |
+|---|---|
+| `GLFMSensorAccelerometer` | Measures the total acceleration force applied to the device, including gravity, in G's. |
+| `GLFMSensorMagnetometer` | Measures the ambient magnetic field in microteslas along each axis. |
+| `GLFMSensorGyroscope` | Measures the device's rate of rotation around each axis in radians per second. |
+| `GLFMSensorRotationMatrix` | Provides a 3×3 rotation matrix where the X axis points North and the Z axis is vertical. |
+
+### `GLFMSensorEvent`
+
+```c
+typedef struct {
+    GLFMSensor sensor;
+    double timestamp;
+    union {
+        struct { double x, y, z; } vector;
+        struct {
+            double m00, m01, m02;
+            double m10, m11, m12;
+            double m20, m21, m22;
+        } matrix;
+    };
+} GLFMSensorEvent;
+```
+
+Contains the result of a sensor reading delivered to `GLFMSensorFunc`.
+
+| Field | Type | Description |
+|---|---|---|
+| `sensor` | `GLFMSensor` | The sensor type that produced this event. |
+| `timestamp` | `double` | Time of the reading in seconds. Not related to wall-clock time. |
+| `vector.x`, `vector.y`, `vector.z` | `double` | Three-dimensional measurement. Used for `Accelerometer`, `Magnetometer`, and `Gyroscope`. |
+| `matrix.m00`–`matrix.m22` | `double` | 3×3 rotation matrix in row-major order. Used for `RotationMatrix` only. |
+
+The `vector` and `matrix` fields are in a union — only access the field that corresponds to the sensor type in the event.
+
+**Sensor units at a glance:**
+
+- **Accelerometer** — acceleration in G's (1 G ≈ 9.8 m/s²)
+- **Magnetometer** — magnetic field strength in microteslas (µT)
+- **Gyroscope** — angular velocity in radians per second
+- **Rotation matrix** — unitless rotation matrix; X axis points North, Z axis is vertical
+
+### `GLFMSensorFunc`
+
+```c
+typedef void (*GLFMSensorFunc)(GLFMDisplay *display, GLFMSensorEvent event);
+```
+
+Callback invoked when a sensor reading is available. Register it with `glfmSetSensorFunc`.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="event" type="GLFMSensorEvent" required>
+  The sensor event containing the type, timestamp, and measurement data.
+</ParamField>
+
+### `glfmIsSensorAvailable()`
+
+```c
+bool glfmIsSensorAvailable(const GLFMDisplay *display, GLFMSensor sensor);
+```
+
+Returns `true` if the specified sensor is present on the device. Always returns `false` on Emscripten.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="sensor" type="GLFMSensor" required>
+  The sensor to check.
+</ParamField>
+
+<Warning>
+  Always call `glfmIsSensorAvailable` before registering a sensor callback. If the sensor is unavailable, `glfmSetSensorFunc` does nothing.
+</Warning>
+
+### `glfmSetSensorFunc()`
+
+```c
+GLFMSensorFunc glfmSetSensorFunc(GLFMDisplay *display, GLFMSensor sensor,
+                                  GLFMSensorFunc sensorFunc);
+```
+
+Registers or unregisters the callback for a specific sensor. Passing a non-`NULL` function enables the sensor; passing `NULL` disables it.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="sensor" type="GLFMSensor" required>
+  The sensor to configure.
+</ParamField>
+
+<ParamField path="sensorFunc" type="GLFMSensorFunc" required>
+  The callback to invoke when sensor data is available. Pass `NULL` to disable the sensor.
+</ParamField>
+
+Returns the previously registered function for that sensor.
+
+Each sensor type has its own independent registration. You can have different callbacks (or `NULL`) for each of the four sensor types at the same time.
+
+<Note>
+  Sensors are automatically disabled when the app goes inactive and re-enabled when it becomes active again. You do not need to manage this yourself.
+</Note>
+
+<Tip>
+  Disable sensors when your app no longer needs them. Continuous sensor polling can noticeably drain the battery on mobile devices. A common pattern is to enable a sensor only while a specific screen or mode is active, then set the callback to `NULL` when leaving that context.
+</Tip>
+
+## Haptic feedback
+
+Haptic feedback is available on iOS (iPhone 7 or later, iOS 13 or later) and Android. On Emscripten, the API is always a no-op.
+
+### `GLFMHapticFeedbackStyle`
+
+Controls the intensity of the haptic tap.
+
+| Value | Description |
+|---|---|
+| `GLFMHapticFeedbackLight` | A subtle tap, suitable for selection changes. |
+| `GLFMHapticFeedbackMedium` | A moderate tap, suitable for confirmations. |
+| `GLFMHapticFeedbackHeavy` | A strong tap, suitable for significant actions or errors. |
+
+### `glfmIsHapticFeedbackSupported()`
+
+```c
+bool glfmIsHapticFeedbackSupported(const GLFMDisplay *display);
+```
+
+Returns `true` if the device supports haptic feedback.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+| Platform | Availability |
+|---|---|
+| iOS | `true` on iPhone 7 or newer running iOS 13 or later. |
+| Android | Depends on device hardware. |
+| Emscripten | Always `false`. |
+
+### `glfmPerformHapticFeedback()`
+
+```c
+void glfmPerformHapticFeedback(GLFMDisplay *display,
+                                GLFMHapticFeedbackStyle style);
+```
+
+Triggers a haptic feedback event. Does nothing on Emscripten.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="style" type="GLFMHapticFeedbackStyle" required>
+  The intensity of the haptic tap.
+</ParamField>
+
+## Platform availability
+
+| Feature | iOS | Android | Emscripten | tvOS |
+|---|---|---|---|---|
+| Accelerometer | Yes | Yes | No | No |
+| Magnetometer | Yes | Yes | No | No |
+| Gyroscope | Yes | Yes | No | No |
+| Rotation matrix | Yes | Yes | No | No |
+| Haptic feedback | iPhone 7+, iOS 13+ | Device-dependent | No | No |
+
+## Example
+
+The example below sets up an accelerometer callback and disables the sensor when it is no longer needed.
+
+```c
+static void onAccelerometer(GLFMDisplay *display, GLFMSensorEvent event) {
+    // event.vector.x, .y, .z are acceleration in G's
+    printf("Acceleration: x=%.2f y=%.2f z=%.2f G\n",
+           event.vector.x, event.vector.y, event.vector.z);
+
+    // Trigger a light haptic tap when a sudden jolt is detected.
+    double magnitude = sqrt(event.vector.x * event.vector.x +
+                            event.vector.y * event.vector.y +
+                            event.vector.z * event.vector.z);
+    if (magnitude > 3.0) {
+        glfmPerformHapticFeedback(display, GLFMHapticFeedbackMedium);
+    }
+}
+
+static void enableAccelerometer(GLFMDisplay *display) {
+    if (glfmIsSensorAvailable(display, GLFMSensorAccelerometer)) {
+        glfmSetSensorFunc(display, GLFMSensorAccelerometer, onAccelerometer);
+    }
+}
+
+static void disableAccelerometer(GLFMDisplay *display) {
+    // Pass NULL to disable the sensor and stop battery drain.
+    glfmSetSensorFunc(display, GLFMSensorAccelerometer, NULL);
+}
+
+void glfmMain(GLFMDisplay *display) {
+    glfmSetDisplayConfig(display,
+                         GLFMRenderingAPIOpenGLES2,
+                         GLFMColorFormatRGBA8888,
+                         GLFMDepthFormatNone,
+                         GLFMStencilFormatNone,
+                         GLFMMultisampleNone);
+
+    // Enable on startup.
+    enableAccelerometer(display);
+
+    // ...register other callbacks...
+}
+```
+
+For the rotation matrix sensor, read from the `matrix` union member instead of `vector`:
+
+```c
+static void onRotation(GLFMDisplay *display, GLFMSensorEvent event) {
+    // event.matrix.m00..m22 — 3x3 rotation matrix
+    // X axis points North, Z axis is vertical.
+    double northX = event.matrix.m00;
+    double northY = event.matrix.m10;
+    double northZ = event.matrix.m20;
+    printf("North direction: (%.2f, %.2f, %.2f)\n", northX, northY, northZ);
+}
+```

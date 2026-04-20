@@ -1,0 +1,281 @@
+---
+title: "GLFM application lifecycle: surfaces and focus events"
+description: "Handle surface creation, OpenGL context loss on Android, focus changes, memory warnings, orientation events, and user data patterns in GLFM apps."
+---
+
+GLFM applications are fully event-driven. Your code responds to a set of lifecycle callbacks rather than driving its own loop. Understanding when each callback fires — especially around surface destruction and recreation — is essential for building a robust app.
+
+<Warning>
+  GLFM is **not thread-safe**. All GLFM functions must be called on the main
+  thread — that is, from `glfmMain()` or from within any GLFM callback function.
+</Warning>
+
+## User data
+
+Because GLFM is a C API, there is no object on which to hang application state. Use the user-data pointer to attach your own struct to the display:
+
+```c
+void  glfmSetUserData(GLFMDisplay *display, void *userData);
+void *glfmGetUserData(const GLFMDisplay *display);
+```
+
+The pointer is neither read nor modified by GLFM. A typical pattern:
+
+```c
+typedef struct {
+    GLuint program;
+    GLuint vertexBuffer;
+    bool needsRedraw;
+} MyApp;
+
+void glfmMain(GLFMDisplay *display) {
+    MyApp *app = calloc(1, sizeof(MyApp));
+    glfmSetUserData(display, app);
+    // Register callbacks...
+}
+
+static void onDraw(GLFMDisplay *display) {
+    MyApp *app = glfmGetUserData(display); // Retrieve your struct
+    // ...
+}
+```
+
+## Surface lifecycle
+
+The surface lifecycle covers the creation, resizing, and destruction of the OpenGL or Metal rendering surface.
+
+### Surface created
+
+```c
+GLFMSurfaceCreatedFunc glfmSetSurfaceCreatedFunc(GLFMDisplay *display,
+                                                 GLFMSurfaceCreatedFunc func);
+```
+
+```c
+typedef void (*GLFMSurfaceCreatedFunc)(GLFMDisplay *display,
+                                       int width, int height);
+```
+
+Called once after the rendering surface is ready. This is the right place to call `glfmGetRenderingAPI()` to verify which API was selected, and to allocate any GPU resources that you know won't need to change.
+
+```c
+static void onSurfaceCreated(GLFMDisplay *display, int width, int height) {
+    GLFMRenderingAPI api = glfmGetRenderingAPI(display);
+    printf("Surface created %dx%d, API=%d\n", width, height, api);
+    // Allocate GL/Metal resources here
+}
+```
+
+### Surface resized
+
+```c
+GLFMSurfaceResizedFunc glfmSetSurfaceResizedFunc(GLFMDisplay *display,
+                                                  GLFMSurfaceResizedFunc func);
+```
+
+```c
+typedef void (*GLFMSurfaceResizedFunc)(GLFMDisplay *display,
+                                       int width, int height);
+```
+
+Called when the surface dimensions change — for example, when the device is rotated or the browser window is resized.
+
+### Surface refresh
+
+```c
+GLFMSurfaceRefreshFunc glfmSetSurfaceRefreshFunc(GLFMDisplay *display,
+                                                  GLFMSurfaceRefreshFunc func);
+```
+
+```c
+typedef void (*GLFMSurfaceRefreshFunc)(GLFMDisplay *display);
+```
+
+Called when the surface needs to be redrawn — for example, when returning from the background or after a rotation. The `GLFMRenderFunc` is called immediately after this callback.
+
+```c
+static void onSurfaceRefresh(GLFMDisplay *display) {
+    MyApp *app = glfmGetUserData(display);
+    app->needsRedraw = true; // Ensure the next render pass draws
+}
+```
+
+### Surface destroyed
+
+```c
+GLFMSurfaceDestroyedFunc glfmSetSurfaceDestroyedFunc(GLFMDisplay *display,
+                                                      GLFMSurfaceDestroyedFunc func);
+```
+
+```c
+typedef void (*GLFMSurfaceDestroyedFunc)(GLFMDisplay *display);
+```
+
+Called when the rendering surface is about to be destroyed. On Android, the OpenGL context can be lost when the app is sent to the background or when the screen is locked. All GPU resources (buffers, textures, programs, framebuffers) become invalid when this callback fires.
+
+<Warning>
+  On **Android**, the OpenGL context **can be lost at any time** the app goes
+  to the background. You must delete all GL objects in `GLFMSurfaceDestroyedFunc`
+  and recreate them in `GLFMSurfaceCreatedFunc`. Holding on to stale GL handles
+  causes undefined behavior after the context is restored.
+</Warning>
+
+#### Pattern for resetting GL resources
+
+```c
+typedef struct {
+    GLuint program;
+    GLuint vertexBuffer;
+    GLuint vertexArray;
+    GLuint indexBuffer;
+} MyApp;
+
+static void onSurfaceDestroyed(GLFMDisplay *display) {
+    // Set all GL handles to 0 — the context is gone, do not call glDelete* here.
+    MyApp *app = glfmGetUserData(display);
+    app->program      = 0;
+    app->vertexBuffer = 0;
+    app->vertexArray  = 0;
+    app->indexBuffer  = 0;
+}
+
+static void onSurfaceCreated(GLFMDisplay *display, int width, int height) {
+    // Resources are recreated lazily in the render callback,
+    // or explicitly here.
+}
+
+static void onDraw(GLFMDisplay *display) {
+    MyApp *app = glfmGetUserData(display);
+    if (app->program == 0) {
+        // (Re)build shaders, buffers, etc.
+    }
+    // Draw...
+    glfmSwapBuffers(display);
+}
+```
+
+### Surface error
+
+```c
+GLFMSurfaceErrorFunc glfmSetSurfaceErrorFunc(GLFMDisplay *display,
+                                              GLFMSurfaceErrorFunc func);
+```
+
+```c
+typedef void (*GLFMSurfaceErrorFunc)(GLFMDisplay *display, const char *message);
+```
+
+Called when the surface cannot be created at all — for example, when the browser does not support WebGL.
+
+## App focus
+
+```c
+GLFMAppFocusFunc glfmSetAppFocusFunc(GLFMDisplay *display, GLFMAppFocusFunc func);
+```
+
+```c
+typedef void (*GLFMAppFocusFunc)(GLFMDisplay *display, bool focused);
+```
+
+Called when the app gains or loses focus:
+
+- `focused = true` — app moved to the foreground (or started up).
+- `focused = false` — app moved to the background.
+
+This callback is also fired once at startup, after `glfmMain()` returns.
+
+<Tabs>
+  <Tab title="iOS / tvOS / Android">
+    Called when the app enters or leaves the foreground. Use this to pause and
+    resume animations, audio, and sensors.
+  </Tab>
+  <Tab title="Web (Emscripten)">
+    Called when the user switches browser tabs and immediately before the page
+    is unloaded. Good place to save state.
+  </Tab>
+</Tabs>
+
+## Memory warning
+
+```c
+GLFMMemoryWarningFunc glfmSetMemoryWarningFunc(GLFMDisplay *display,
+                                               GLFMMemoryWarningFunc func);
+```
+
+```c
+typedef void (*GLFMMemoryWarningFunc)(GLFMDisplay *display);
+```
+
+Called when the OS is running low on memory. Release caches, textures, and other optional resources to avoid being terminated.
+
+<Note>
+  Memory warnings are not available on Emscripten (web).
+</Note>
+
+## Orientation changes
+
+```c
+GLFMOrientationChangedFunc glfmSetOrientationChangedFunc(
+    GLFMDisplay *display,
+    GLFMOrientationChangedFunc func);
+```
+
+```c
+typedef void (*GLFMOrientationChangedFunc)(GLFMDisplay *display,
+                                           GLFMInterfaceOrientation orientation);
+```
+
+Called when the device rotates to a new interface orientation. `orientation` will be one of the cardinal `GLFMInterfaceOrientation` values (never `GLFMInterfaceOrientationUnknown`).
+
+## Chrome insets changed
+
+```c
+GLFMDisplayChromeInsetsChangedFunc glfmSetDisplayChromeInsetsChangedFunc(
+    GLFMDisplay *display,
+    GLFMDisplayChromeInsetsChangedFunc func);
+```
+
+```c
+typedef void (*GLFMDisplayChromeInsetsChangedFunc)(GLFMDisplay *display,
+                                                   double top, double right,
+                                                   double bottom, double left);
+```
+
+Called when the safe-area insets change — for example, when chrome visibility is toggled with `glfmSetDisplayChrome()` or when the keyboard appears. Insets are in pixels.
+
+Use this callback together with `glfmGetDisplayChromeInsets()` to keep your UI correctly positioned at all times.
+
+## Callback registration order
+
+GLFM does not impose a required registration order. A typical `glfmMain()` looks like:
+
+```c
+void glfmMain(GLFMDisplay *display) {
+    MyApp *app = calloc(1, sizeof(MyApp));
+
+    glfmSetDisplayConfig(display,
+                         GLFMRenderingAPIOpenGLES2,
+                         GLFMColorFormatRGBA8888,
+                         GLFMDepthFormatNone,
+                         GLFMStencilFormatNone,
+                         GLFMMultisampleNone);
+
+    glfmSetUserData(display, app);
+
+    // Surface callbacks
+    glfmSetSurfaceCreatedFunc(display, onSurfaceCreated);
+    glfmSetSurfaceResizedFunc(display, onSurfaceResized);
+    glfmSetSurfaceRefreshFunc(display, onSurfaceRefresh);
+    glfmSetSurfaceDestroyedFunc(display, onSurfaceDestroyed);
+    glfmSetSurfaceErrorFunc(display, onSurfaceError);
+
+    // App lifecycle
+    glfmSetAppFocusFunc(display, onAppFocus);
+    glfmSetMemoryWarningFunc(display, onMemoryWarning);
+    glfmSetOrientationChangedFunc(display, onOrientationChanged);
+    glfmSetDisplayChromeInsetsChangedFunc(display, onChromeInsetsChanged);
+
+    // Render
+    glfmSetRenderFunc(display, onDraw);
+}
+```

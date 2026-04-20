@@ -1,0 +1,59 @@
+---
+title: "GLFM example apps: triangle, touch, sensors, and more"
+description: "Hands-on examples that show how to build OpenGL ES apps with GLFM, from a minimal triangle to interactive 3D rendering, keyboard input, and sensor-driven UIs."
+---
+
+The `examples/` directory in the GLFM repository contains self-contained C programs that each demonstrate a distinct area of the API. Reading them alongside the header is the fastest way to understand how GLFM's event-driven model works in practice — from the `glfmMain` entry point through surface lifecycle management, input handling, and frame rendering.
+
+<CardGroup cols={2}>
+  <Card title="triangle" icon="play">
+    The minimal GLFM app. Sets up an OpenGL ES 2 display, compiles an inline vertex and fragment shader, uploads a single vertex buffer, and draws one white triangle per frame. Start here.
+  </Card>
+  <Card title="touch" icon="hand-pointer">
+    An interactive colored cube that responds to touch drags, mouse-wheel scroll, and keyboard arrow keys. Shows the user-data pattern, multitouch phase tracking, and per-frame dirty-flag rendering.
+  </Card>
+  <Card title="anim" icon="film">
+    A cube of animated rectangles with additive blending. Extends the touch example with `glfmGetTime`-based animation and a focus callback that pauses the clock when the app loses focus.
+  </Card>
+  <Card title="heightmap" icon="mountain">
+    A procedurally generated terrain mesh. Demonstrates depth-buffer usage, wireframe toggling, and regeneration via touch or keyboard (Spacebar / Tab). Requires OpenGL ES 2 depth support.
+  </Card>
+  <Card title="typing" icon="keyboard">
+    Character input, key codes, and the virtual keyboard. Renders an ASCII-only text console and handles Ctrl shortcuts (cut/copy/paste). The best reference for text and keyboard integration.
+  </Card>
+  <Card title="compass" icon="compass">
+    A 3D compass needle driven by the device rotation-matrix sensor (`GLFMSensorRotationMatrix`). Shows how to enable sensors and adjust for interface orientation. iOS and Android only.
+  </Card>
+  <Card title="shader_toy" icon="wand-magic-sparkles">
+    A fullscreen fragment shader in the style of Shadertoy. Demonstrates how to pass time and resolution uniforms to an animated GLSL effect with no geometry beyond a screen-filling quad.
+  </Card>
+  <Card title="test_pattern" icon="grid">
+    A framebuffer scaling test that uses `glfmGetDisplayChromeInsets` to draw inset indicators. Useful for verifying high-DPI and safe-area behavior on physical devices.
+  </Card>
+</CardGroup>
+
+## Building the examples
+
+The examples share a single `CMakeLists.txt` and are gated behind the `GLFM_BUILD_EXAMPLES` flag. See the platform-specific build guides for full instructions:
+
+- **Xcode (iOS / tvOS / macOS)** — run `cmake -D GLFM_BUILD_EXAMPLES=ON -B build/apple -G Xcode`, then open `build/apple/GLFM.xcodeproj` and select the target you want (e.g. `glfm_touch`).
+- **Emscripten (Web)** — run `emcmake cmake -D GLFM_BUILD_EXAMPLES=ON -B build/emscripten && cmake --build build/emscripten`, then serve with `emrun build/emscripten/examples`.
+- **Android Studio** — add `externalNativeBuild` pointing at the root `CMakeLists.txt` with `-DGLFM_BUILD_EXAMPLES=ON`, and reference the assets directory (see below).
+
+Each example compiles to a library named `glfm_<example>` (e.g. `glfm_triangle`, `glfm_touch`).
+
+## The assets directory
+
+Some examples (`typing`, `compass`, `shader_toy`, `test_pattern`) load files at runtime from `examples/assets/`. On Android, the Gradle `sourceSets.main.assets.srcDirs` must point to this directory:
+
+```gradle
+sourceSets.main {
+    assets.srcDirs = ["../../../examples/assets"]
+}
+```
+
+On Emscripten the build system packages the assets automatically. On iOS and macOS they are copied into the app bundle by CMake.
+
+<Note>
+  Examples that use `file_compat.h` (a small portability helper bundled in `examples/deps/`) require `FILE_COMPAT_ANDROID_ACTIVITY` to be defined before the include so the helper can reach the Android asset manager through GLFM's `glfmGetAndroidActivity`.
+</Note>

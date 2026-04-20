@@ -1,0 +1,248 @@
+---
+title: "Triangle example: the smallest possible GLFM app"
+description: "A line-by-line walkthrough of triangle.c: glfmMain entry point, two inline GLSL shaders, one vertex buffer, and a single OpenGL ES draw call."
+---
+
+`examples/triangle.c` is the recommended starting point for any new GLFM project. It contains every concept you need to understand before moving on to more complex examples: the entry point, display configuration, lazy GL resource creation, viewport sizing, and the swap-buffers call — all in under 100 lines of C.
+
+## Full source
+
+```c
+// Basic triangle example
+#include "glfm.h"
+
+static GLint program = 0;
+static GLuint vertexBuffer = 0;
+static GLuint vertexArray = 0;
+
+static void onDraw(GLFMDisplay *display);
+static void onSurfaceDestroyed(GLFMDisplay *display);
+
+void glfmMain(GLFMDisplay *display) {
+    glfmSetDisplayConfig(display,
+                         GLFMRenderingAPIOpenGLES2,
+                         GLFMColorFormatRGBA8888,
+                         GLFMDepthFormatNone,
+                         GLFMStencilFormatNone,
+                         GLFMMultisampleNone);
+    glfmSetRenderFunc(display, onDraw);
+    glfmSetSurfaceDestroyedFunc(display, onSurfaceDestroyed);
+}
+
+static void onSurfaceDestroyed(GLFMDisplay *display) {
+    // When the surface is destroyed, all existing GL resources are no longer valid.
+    program = 0;
+    vertexBuffer = 0;
+    vertexArray = 0;
+}
+
+static GLuint compileShader(const GLenum type, const GLchar *shaderString, GLint shaderLength) {
+    GLuint shader = glCreateShader(type);
+    glShaderSource(shader, 1, &shaderString, &shaderLength);
+    glCompileShader(shader);
+    return shader;
+}
+
+static void onDraw(GLFMDisplay *display) {
+    if (program == 0) {
+        const GLchar vertexShader[] =
+            "#version 100\n"
+            "attribute highp vec4 position;\n"
+            "void main() {\n"
+            "   gl_Position = position;\n"
+            "}";
+
+        const GLchar fragmentShader[] =
+            "#version 100\n"
+            "void main() {\n"
+            "  gl_FragColor = vec4(1.00, 1.00, 1.00, 1.0);\n"
+            "}";
+
+        program = glCreateProgram();
+        GLuint vertShader = compileShader(GL_VERTEX_SHADER, vertexShader, sizeof(vertexShader) - 1);
+        GLuint fragShader = compileShader(GL_FRAGMENT_SHADER, fragmentShader, sizeof(fragmentShader) - 1);
+
+        glAttachShader(program, vertShader);
+        glAttachShader(program, fragShader);
+
+        glLinkProgram(program);
+
+        glDeleteShader(vertShader);
+        glDeleteShader(fragShader);
+    }
+    if (vertexBuffer == 0) {
+        const GLfloat vertices[] = {
+             0.0,  0.5, 0.0,
+            -0.5, -0.5, 0.0,
+             0.5, -0.5, 0.0,
+        };
+        glGenBuffers(1, &vertexBuffer);
+        glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    }
+
+    int width, height;
+    glfmGetDisplaySize(display, &width, &height);
+    glViewport(0, 0, width, height);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+#if defined(GL_VERSION_3_0) && GL_VERSION_3_0
+    if (vertexArray == 0) {
+        glGenVertexArrays(1, &vertexArray);
+    }
+    glBindVertexArray(vertexArray);
+#endif
+
+    glUseProgram(program);
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    glfmSwapBuffers(display);
+}
+```
+
+## Walkthrough
+
+<Steps>
+  <Step title="glfmMain — entry point and display configuration">
+    `glfmMain` is the only symbol you are required to define. GLFM calls it once after the platform has set up the native window, passing in a `GLFMDisplay *` that represents the current display context.
+
+    ```c
+    void glfmMain(GLFMDisplay *display) {
+        glfmSetDisplayConfig(display,
+                             GLFMRenderingAPIOpenGLES2,
+                             GLFMColorFormatRGBA8888,
+                             GLFMDepthFormatNone,
+                             GLFMStencilFormatNone,
+                             GLFMMultisampleNone);
+        glfmSetRenderFunc(display, onDraw);
+        glfmSetSurfaceDestroyedFunc(display, onSurfaceDestroyed);
+    }
+    ```
+
+    `glfmSetDisplayConfig` declares what kind of surface you want. The triangle needs only a color buffer with no depth, stencil, or multisampling, so all optional formats are set to `None`. `glfmSetRenderFunc` registers the callback that GLFM will call when it's time to produce a frame. `glfmSetSurfaceDestroyedFunc` registers the callback that fires when the GL context is torn down (e.g. the app is sent to the background on Android).
+
+    <Note>
+      `glfmMain` replaces the traditional `main()`. On iOS, `main()` is already claimed by UIKit and must never return, so GLFM provides this dedicated entry point instead.
+    </Note>
+  </Step>
+
+  <Step title="Shader creation (vertex + fragment)">
+    GL resources are created lazily on the first call to `onDraw`, guarded by a zero-check on `program`:
+
+    ```c
+    if (program == 0) {
+        const GLchar vertexShader[] =
+            "#version 100\n"
+            "attribute highp vec4 position;\n"
+            "void main() {\n"
+            "   gl_Position = position;\n"
+            "}";
+
+        const GLchar fragmentShader[] =
+            "#version 100\n"
+            "void main() {\n"
+            "  gl_FragColor = vec4(1.00, 1.00, 1.00, 1.0);\n"
+            "}";
+
+        program = glCreateProgram();
+        GLuint vertShader = compileShader(GL_VERTEX_SHADER, vertexShader, sizeof(vertexShader) - 1);
+        GLuint fragShader = compileShader(GL_FRAGMENT_SHADER, fragmentShader, sizeof(fragmentShader) - 1);
+
+        glAttachShader(program, vertShader);
+        glAttachShader(program, fragShader);
+        glLinkProgram(program);
+
+        glDeleteShader(vertShader);
+        glDeleteShader(fragShader);
+    }
+    ```
+
+    Both shaders target GLSL ES 1.00 (`#version 100`), which is the lowest common denominator across iOS, Android, and WebGL. The vertex shader passes the incoming `position` attribute straight through to `gl_Position`. The fragment shader outputs solid white (`vec4(1, 1, 1, 1)`).
+
+    Intermediate shader objects are deleted immediately after linking — the linked program retains the compiled code, so the objects are no longer needed.
+  </Step>
+
+  <Step title="Vertex buffer setup">
+    ```c
+    if (vertexBuffer == 0) {
+        const GLfloat vertices[] = {
+             0.0,  0.5, 0.0,
+            -0.5, -0.5, 0.0,
+             0.5, -0.5, 0.0,
+        };
+        glGenBuffers(1, &vertexBuffer);
+        glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    }
+    ```
+
+    Three XYZ positions in normalized device coordinates define the triangle: top-center, bottom-left, bottom-right. The data is uploaded once with `GL_STATIC_DRAW` because it never changes. Like the shaders, the buffer is created lazily and the handle is stored in a static variable so the `onSurfaceDestroyed` callback can reset it when the context is lost.
+
+    On OpenGL ES 3 builds, a vertex array object (VAO) is also created to capture the attribute state:
+
+    ```c
+    #if defined(GL_VERSION_3_0) && GL_VERSION_3_0
+        if (vertexArray == 0) {
+            glGenVertexArrays(1, &vertexArray);
+        }
+        glBindVertexArray(vertexArray);
+    #endif
+    ```
+
+    The preprocessor guard keeps the code valid on OpenGL ES 2 targets where VAOs are not part of the core spec.
+  </Step>
+
+  <Step title="The render loop (onDraw)">
+    GLFM calls `onDraw` every time the platform is ready for a new frame. The display size can change between calls (device rotation, window resize on macOS), so the viewport is updated on every frame using `glfmGetDisplaySize`:
+
+    ```c
+    int width, height;
+    glfmGetDisplaySize(display, &width, &height);
+    glViewport(0, 0, width, height);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    ```
+
+    `glfmGetDisplaySize` returns the framebuffer size in physical pixels, already accounting for the device's pixel ratio on Retina / high-DPI screens. Passing it directly to `glViewport` means the triangle always fills the full display without manual scaling.
+
+    After clearing, the program is bound, the buffer and attribute pointer are set, and a single draw call renders the triangle:
+
+    ```c
+    glUseProgram(program);
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    ```
+  </Step>
+
+  <Step title="glfmSwapBuffers — presenting the frame">
+    ```c
+    glfmSwapBuffers(display);
+    ```
+
+    This is the final call inside every `onDraw` implementation. It hands the completed framebuffer to the platform compositor. On iOS this calls `presentRenderbuffer`; on Android it calls `eglSwapBuffers`; on Emscripten it is handled by the browser's animation frame pipeline. You must call it exactly once per `onDraw` invocation, after all drawing is complete.
+  </Step>
+
+  <Step title="Surface destruction handler">
+    ```c
+    static void onSurfaceDestroyed(GLFMDisplay *display) {
+        // When the surface is destroyed, all existing GL resources are no longer valid.
+        program = 0;
+        vertexBuffer = 0;
+        vertexArray = 0;
+    }
+    ```
+
+    On Android the GL context can be destroyed and recreated when the app moves to the background. All GL object handles become invalid when this happens. The `onSurfaceDestroyed` callback resets the static handles to zero so the lazy-initialization guards in `onDraw` will recreate them when the surface comes back.
+
+    <Tip>
+      Never call `glDeleteProgram`, `glDeleteBuffers`, or similar functions inside `onSurfaceDestroyed`. The GL context is already gone by the time this callback fires, so those calls would operate on invalid state. Simply zero out the handles.
+    </Tip>
+  </Step>
+</Steps>

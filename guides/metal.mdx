@@ -1,0 +1,139 @@
+---
+title: "Use Metal rendering with GLFM on iOS and tvOS"
+description: "Request the Metal rendering API in GLFM, obtain the MTKView after surface creation, and present Metal drawables correctly on iOS and tvOS."
+---
+
+GLFM supports Metal on iOS and tvOS as an alternative to OpenGL ES. When Metal is used, GLFM creates an `MTKView` and exposes it through a native API so you can drive rendering with Metal's own command queue and presentation model.
+
+<Note>
+  Metal is available on **iOS and tvOS only**. Android and Emscripten (web) do
+  not support Metal. `glfmIsMetalSupported()` returns `false` on those platforms.
+</Note>
+
+## When to use Metal vs OpenGL ES
+
+| | Metal | OpenGL ES |
+|---|---|---|
+| Platforms | iOS, tvOS | iOS, tvOS, Android, Web |
+| Portability | Apple only | All GLFM platforms |
+| API style | Explicit, low-overhead | State-machine |
+| Max version | Latest Metal feature set | ES 3.2 on Android, ES 3.0 on iOS/Web |
+
+Use Metal when you are targeting Apple platforms exclusively and want the lowest CPU overhead, access to the latest GPU features, or tight integration with Apple frameworks. Use OpenGL ES when portability to Android or the web is required.
+
+## Checking Metal availability
+
+Before requesting Metal, confirm that the device supports it:
+
+```c
+bool glfmIsMetalSupported(const GLFMDisplay *display);
+```
+
+```c
+void glfmMain(GLFMDisplay *display) {
+    GLFMRenderingAPI api = glfmIsMetalSupported(display)
+        ? GLFMRenderingAPIMetal
+        : GLFMRenderingAPIOpenGLES3;
+
+    glfmSetDisplayConfig(display,
+                         api,
+                         GLFMColorFormatRGBA8888,
+                         GLFMDepthFormat16,
+                         GLFMStencilFormatNone,
+                         GLFMMultisampleNone);
+    glfmSetSurfaceCreatedFunc(display, onSurfaceCreated);
+    glfmSetRenderFunc(display, onDraw);
+}
+```
+
+Call `glfmGetRenderingAPI()` inside `GLFMSurfaceCreatedFunc` to confirm which API was actually used.
+
+## Requesting Metal in display config
+
+Pass `GLFMRenderingAPIMetal` as the `preferredAPI` argument to `glfmSetDisplayConfig()`. If Metal is unavailable, GLFM falls back to OpenGL ES 2.0 (see the [Display setup guide](/guides/display-setup) for the fallback rules).
+
+## Getting the MTKView
+
+After the surface is created, retrieve a pointer to the `MTKView`:
+
+```c
+void *glfmGetMetalView(const GLFMDisplay *display);
+```
+
+This returns a pointer to an `MTKView` instance, or `NULL` if Metal is not in use. The pointer is only valid after the surface has been created — do not call it before `GLFMSurfaceCreatedFunc` fires.
+
+```c
+#include <MetalKit/MetalKit.h>
+
+static void onSurfaceCreated(GLFMDisplay *display, int width, int height) {
+    if (glfmGetRenderingAPI(display) == GLFMRenderingAPIMetal) {
+        MTKView *mtkView = (__bridge MTKView *)glfmGetMetalView(display);
+        id<MTLDevice> device = mtkView.device;
+        // Set up command queue, pipeline state, etc.
+    }
+}
+```
+
+<Note>
+  `glfmGetMetalView()` is only declared when compiling for Apple platforms
+  (`__APPLE__` defined) or when `GLFM_EXPOSE_NATIVE_APPLE` is defined.
+</Note>
+
+## Buffer presentation
+
+In Metal, **you** are responsible for presenting the drawable. GLFM's `glfmSwapBuffers()` does nothing when the Metal rendering API is active; calling it has no effect. Instead, end your render pass and present the drawable through Metal's own API:
+
+```c
+static void onDraw(GLFMDisplay *display) {
+    MTKView *mtkView = (__bridge MTKView *)glfmGetMetalView(display);
+    id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];
+
+    MTLRenderPassDescriptor *rpd = mtkView.currentRenderPassDescriptor;
+    if (rpd) {
+        id<MTLRenderCommandEncoder> enc =
+            [commandBuffer renderCommandEncoderWithDescriptor:rpd];
+        // Issue draw calls...
+        [enc endEncoding];
+        [commandBuffer presentDrawable:mtkView.currentDrawable];
+    }
+    [commandBuffer commit];
+
+    // Do NOT call glfmSwapBuffers() when using Metal.
+}
+```
+
+<Warning>
+  Do **not** call `glfmSwapBuffers()` when using Metal. It is a no-op in Metal
+  mode, but it is misleading and should be omitted for clarity.
+</Warning>
+
+## Accessing the view controller
+
+For deeper integration with UIKit (iOS/tvOS) or AppKit (macOS), you can obtain the view controller:
+
+```c
+void *glfmGetViewController(const GLFMDisplay *display);
+```
+
+This returns a `UIViewController*` on iOS and tvOS, or an `NSViewController*` on macOS. Cast it appropriately:
+
+```c
+UIViewController *vc = (__bridge UIViewController *)glfmGetViewController(display);
+```
+
+This is useful for presenting native UI, adding child view controllers, or configuring the view hierarchy alongside your Metal layer.
+
+<Note>
+  Like `glfmGetMetalView()`, `glfmGetViewController()` is only available when
+  compiling for Apple platforms or when `GLFM_EXPOSE_NATIVE_APPLE` is defined.
+</Note>
+
+## Platform availability summary
+
+| Platform | Metal | `glfmGetMetalView()` | `glfmGetViewController()` |
+|---|---|---|---|
+| iOS | Yes | Yes | Yes |
+| tvOS | Yes | Yes | Yes |
+| macOS | No (OpenGL 3.2 only) | N/A | Yes |
+| Android | No | N/A | N/A |
+| Emscripten | No | N/A | N/A |

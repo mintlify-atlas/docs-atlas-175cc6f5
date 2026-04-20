@@ -1,0 +1,322 @@
+---
+title: "GLFM display configuration and query functions"
+description: "Reference for glfmSetDisplayConfig, glfmGetDisplaySize, glfmGetDisplayScale, chrome insets, interface orientation, swap behavior, and rendering API query."
+---
+
+The display functions let you request a rendering configuration at startup and query the physical properties of the display at any time. Call `glfmSetDisplayConfig` inside `glfmMain` to declare the surface format you need; use the query functions in callbacks to adapt your rendering to device size, scale, and safe-area insets.
+
+---
+
+## glfmSetDisplayConfig
+
+```c
+void glfmSetDisplayConfig(GLFMDisplay *display,
+                          GLFMRenderingAPI preferredAPI,
+                          GLFMColorFormat colorFormat,
+                          GLFMDepthFormat depthFormat,
+                          GLFMStencilFormat stencilFormat,
+                          GLFMMultisample multisample);
+```
+
+Requests the display surface configuration. This function must only be called inside `glfmMain`. If the device does not support the preferred rendering API, GLFM falls back to the next available option (for example, OpenGL ES 2.0 when OpenGL ES 3.0 is unavailable). Call `glfmGetRenderingAPI` inside `GLFMSurfaceCreatedFunc` to confirm which API was actually granted.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The display handle received in `glfmMain`.
+</ParamField>
+
+<ParamField path="preferredAPI" type="GLFMRenderingAPI" required>
+  The rendering API to request. One of:
+  - `GLFMRenderingAPIOpenGLES2` — OpenGL ES 2.0 (all platforms)
+  - `GLFMRenderingAPIOpenGLES3` — OpenGL ES 3.0 (iOS, Android, Emscripten)
+  - `GLFMRenderingAPIOpenGLES31` — OpenGL ES 3.1 (Android only)
+  - `GLFMRenderingAPIOpenGLES32` — OpenGL ES 3.2 (Android only)
+  - `GLFMRenderingAPIMetal` — Metal (Apple platforms only)
+</ParamField>
+
+<ParamField path="colorFormat" type="GLFMColorFormat" required>
+  The color buffer format to request. One of:
+  - `GLFMColorFormatRGBA8888` — 32-bit RGBA (recommended for most apps)
+  - `GLFMColorFormatRGB565` — 16-bit RGB (lower memory, reduced quality)
+</ParamField>
+
+<ParamField path="depthFormat" type="GLFMDepthFormat" required>
+  The depth buffer format to request. One of:
+  - `GLFMDepthFormatNone` — No depth buffer (2D apps)
+  - `GLFMDepthFormat16` — 16-bit depth
+  - `GLFMDepthFormat24` — 24-bit depth
+  - `GLFMDepthFormat32` — 32-bit floating-point depth (Metal), 24-bit (OpenGL ES)
+</ParamField>
+
+<ParamField path="stencilFormat" type="GLFMStencilFormat" required>
+  The stencil buffer format to request. One of:
+  - `GLFMStencilFormatNone` — No stencil buffer
+  - `GLFMStencilFormat8` — 8-bit stencil buffer
+</ParamField>
+
+<ParamField path="multisample" type="GLFMMultisample" required>
+  Multisampling anti-aliasing. One of:
+  - `GLFMMultisampleNone` — No multisampling
+  - `GLFMMultisample4X` — 4× MSAA
+</ParamField>
+
+### Example
+
+```c
+void glfmMain(GLFMDisplay *display) {
+    glfmSetDisplayConfig(display,
+                         GLFMRenderingAPIOpenGLES2,
+                         GLFMColorFormatRGBA8888,
+                         GLFMDepthFormatNone,
+                         GLFMStencilFormatNone,
+                         GLFMMultisampleNone);
+    // ...
+}
+```
+
+---
+
+## glfmGetDisplaySize
+
+```c
+void glfmGetDisplaySize(const GLFMDisplay *display, int *width, int *height);
+```
+
+Returns the display surface size in pixels. Either `width` or `height` may be `NULL` if you only need one dimension.
+
+<ParamField path="display" type="const GLFMDisplay *" required>
+  The display handle.
+</ParamField>
+
+<ParamField path="width" type="int *">
+  Output pointer for the surface width in pixels. May be `NULL`.
+</ParamField>
+
+<ParamField path="height" type="int *">
+  Output pointer for the surface height in pixels. May be `NULL`.
+</ParamField>
+
+```c
+static void onDraw(GLFMDisplay *display) {
+    int width, height;
+    glfmGetDisplaySize(display, &width, &height);
+    glViewport(0, 0, width, height);
+    // ...
+}
+```
+
+---
+
+## glfmGetDisplayScale
+
+```c
+double glfmGetDisplayScale(const GLFMDisplay *display);
+```
+
+Returns the ratio of physical pixels to logical points for the display. On Apple platforms, non-retina displays return `1.0` and retina displays return `2.0`. Android and Emscripten return equivalent device pixel ratio values.
+
+<ParamField path="display" type="const GLFMDisplay *" required>
+  The display handle.
+</ParamField>
+
+**Returns:** The device pixel ratio as a `double`. Typical values are `1.0`, `2.0`, or `3.0`.
+
+```c
+double scale = glfmGetDisplayScale(display);
+// A logical point equals (scale) physical pixels
+```
+
+<Tip>
+Multiply logical UI measurements by the display scale to convert them to pixel sizes for OpenGL draw calls and texture allocations.
+</Tip>
+
+---
+
+## glfmGetDisplayChromeInsets
+
+```c
+void glfmGetDisplayChromeInsets(const GLFMDisplay *display,
+                                double *top, double *right,
+                                double *bottom, double *left);
+```
+
+Returns the chrome insets (also called "safe area insets" on iOS) in pixels. These are the regions along the display edges occupied by system UI such as the status bar, navigation bar, notch, or home indicator. Any pointer may be `NULL`.
+
+<ParamField path="display" type="const GLFMDisplay *" required>
+  The display handle.
+</ParamField>
+
+<ParamField path="top" type="double *">
+  Output for the top inset in pixels. May be `NULL`.
+</ParamField>
+
+<ParamField path="right" type="double *">
+  Output for the right inset in pixels. May be `NULL`.
+</ParamField>
+
+<ParamField path="bottom" type="double *">
+  Output for the bottom inset in pixels. May be `NULL`.
+</ParamField>
+
+<ParamField path="left" type="double *">
+  Output for the left inset in pixels. May be `NULL`.
+</ParamField>
+
+```c
+double top, right, bottom, left;
+glfmGetDisplayChromeInsets(display, &top, &right, &bottom, &left);
+
+// Restrict your UI to the safe area
+float safeX = left;
+float safeY = top;
+float safeWidth  = displayWidth  - left - right;
+float safeHeight = displayHeight - top  - bottom;
+```
+
+<Note>
+Insets change when the device rotates or when you call `glfmSetDisplayChrome`. Register a `GLFMDisplayChromeInsetsChangedFunc` callback with `glfmSetDisplayChromeInsetsChangedFunc` to be notified when insets change.
+</Note>
+
+---
+
+## glfmGetDisplayChrome / glfmSetDisplayChrome
+
+```c
+GLFMUserInterfaceChrome glfmGetDisplayChrome(const GLFMDisplay *display);
+
+void glfmSetDisplayChrome(GLFMDisplay *display, GLFMUserInterfaceChrome uiChrome);
+```
+
+Gets or sets the visibility of system UI chrome (status bar, navigation bar, home indicator).
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The display handle.
+</ParamField>
+
+<ParamField path="uiChrome" type="GLFMUserInterfaceChrome" required>
+  One of:
+  - `GLFMUserInterfaceChromeNavigation` — Show navigation bar only (Android) / home indicator only (iOS).
+  - `GLFMUserInterfaceChromeNavigationAndStatusBar` — Show both navigation bar and status bar.
+  - `GLFMUserInterfaceChromeNone` — Hide all chrome. On Android 4.4+ this is fullscreen immersive mode; on iOS the home indicator is dimmed.
+</ParamField>
+
+**Returns (`glfmGetDisplayChrome`):** The current `GLFMUserInterfaceChrome` value.
+
+Changing chrome may update the chrome insets but not immediately. Use `glfmSetDisplayChromeInsetsChangedFunc` to react to inset changes.
+
+<Warning>
+On Emscripten, switching to fullscreen (`GLFMUserInterfaceChromeNone`) must be triggered from a user-generated event handler such as a touch or key callback. Browsers block programmatic fullscreen requests that occur outside of user interaction.
+</Warning>
+
+---
+
+## glfmGetSupportedInterfaceOrientation / glfmSetSupportedInterfaceOrientation
+
+```c
+GLFMInterfaceOrientation glfmGetSupportedInterfaceOrientation(const GLFMDisplay *display);
+
+void glfmSetSupportedInterfaceOrientation(GLFMDisplay *display,
+                                          GLFMInterfaceOrientation supportedOrientations);
+```
+
+Gets or sets the set of interface orientations the app allows. The default is `GLFMInterfaceOrientationAll`. Actual support may be further limited by the device or platform.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The display handle.
+</ParamField>
+
+<ParamField path="supportedOrientations" type="GLFMInterfaceOrientation" required>
+  A bitmask of one or more orientation flags. Common values:
+  - `GLFMInterfaceOrientationAll` — Portrait, portrait upside-down, landscape left, landscape right.
+  - `GLFMInterfaceOrientationAllButUpsideDown` — All except portrait upside-down.
+  - `GLFMInterfaceOrientationPortrait` — Portrait only.
+  - `GLFMInterfaceOrientationLandscape` — Landscape left and landscape right.
+  - `GLFMInterfaceOrientationLandscapeLeft` — Landscape left only.
+  - `GLFMInterfaceOrientationLandscapeRight` — Landscape right only.
+</ParamField>
+
+**Returns (`glfmGetSupportedInterfaceOrientation`):** The current supported orientation bitmask.
+
+```c
+// Lock to portrait for a card game
+glfmSetSupportedInterfaceOrientation(display, GLFMInterfaceOrientationPortrait);
+```
+
+---
+
+## glfmGetInterfaceOrientation
+
+```c
+GLFMInterfaceOrientation glfmGetInterfaceOrientation(const GLFMDisplay *display);
+```
+
+Returns the current device orientation.
+
+<ParamField path="display" type="const GLFMDisplay *" required>
+  The display handle.
+</ParamField>
+
+**Returns:** One of `GLFMInterfaceOrientationPortrait`, `GLFMInterfaceOrientationPortraitUpsideDown`, `GLFMInterfaceOrientationLandscapeLeft`, `GLFMInterfaceOrientationLandscapeRight`, or `GLFMInterfaceOrientationUnknown`.
+
+<Note>
+Register a `GLFMOrientationChangedFunc` with `glfmSetOrientationChangedFunc` to receive orientation change events instead of polling this function each frame.
+</Note>
+
+---
+
+## glfmSetSwapBehavior / glfmGetSwapBehavior
+
+```c
+void glfmSetSwapBehavior(GLFMDisplay *display, GLFMSwapBehavior behavior);
+
+GLFMSwapBehavior glfmGetSwapBehavior(const GLFMDisplay *display);
+```
+
+Sets or gets the buffer swap behavior for newly created surfaces. This setting is Android-only and must be applied before the surface is created — preferably at the very beginning of `glfmMain`.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The display handle.
+</ParamField>
+
+<ParamField path="behavior" type="GLFMSwapBehavior" required>
+  One of:
+  - `GLFMSwapBehaviorPlatformDefault` — Use the platform default behavior.
+  - `GLFMSwapBehaviorBufferDestroyed` — The back buffer contents are undefined after a swap.
+  - `GLFMSwapBehaviorBufferPreserved` — The back buffer contents are preserved after a swap.
+</ParamField>
+
+**Returns (`glfmGetSwapBehavior`):** The current `GLFMSwapBehavior` value.
+
+<Warning>
+This function has no effect on iOS, tvOS, macOS, or Emscripten. Set the behavior before the surface is created on Android; changes after surface creation will not take effect until the next surface creation.
+</Warning>
+
+---
+
+## glfmGetRenderingAPI
+
+```c
+GLFMRenderingAPI glfmGetRenderingAPI(const GLFMDisplay *display);
+```
+
+Returns the rendering API actually in use. The default before the surface is created is `GLFMRenderingAPIOpenGLES2`, but this value is not meaningful until `GLFMSurfaceCreatedFunc` fires.
+
+<ParamField path="display" type="const GLFMDisplay *" required>
+  The display handle.
+</ParamField>
+
+**Returns:** The active `GLFMRenderingAPI`. Check this inside your `GLFMSurfaceCreatedFunc` to select the correct rendering path.
+
+```c
+static void onSurfaceCreated(GLFMDisplay *display, int width, int height) {
+    GLFMRenderingAPI api = glfmGetRenderingAPI(display);
+    if (api == GLFMRenderingAPIMetal) {
+        // Initialize Metal renderer
+    } else {
+        // Initialize OpenGL ES renderer
+    }
+}
+```
+
+<Note>
+When you request an API that is unavailable (for example, OpenGL ES 3.0 on a device that only supports 2.0), GLFM silently falls back. Always check `glfmGetRenderingAPI` rather than assuming your preferred API was granted.
+</Note>

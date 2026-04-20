@@ -1,0 +1,351 @@
+---
+title: "GLFM touch, mouse, wheel, and clipboard functions"
+description: "Reference for glfmSetTouchFunc, multitouch control, mouse cursor styles, mouse wheel events on Emscripten, and clipboard read/write across all platforms."
+---
+
+Touch and mouse events share a single callback in GLFM. On mobile devices, each finger contact is a separate touch numbered from zero. On desktop platforms, the primary mouse button maps to touch zero. Multitouch is disabled by default and must be explicitly enabled.
+
+## Touch callback
+
+### `GLFMTouchPhase`
+
+The phase of a touch or mouse-button event.
+
+| Value | Description |
+|---|---|
+| `GLFMTouchPhaseHover` | Pointer is moving without contact (mouse or Apple Pencil hover). |
+| `GLFMTouchPhaseBegan` | Touch or mouse button press started. |
+| `GLFMTouchPhaseMoved` | Touch or cursor moved while in contact. |
+| `GLFMTouchPhaseEnded` | Touch or mouse button was released. |
+| `GLFMTouchPhaseCancelled` | Touch was cancelled by the system (e.g. incoming call). |
+
+<Note>
+  `GLFMTouchPhaseHover` is only generated on iPad with a connected pointing device running iOS 13.4 or later, and on desktop platforms with a mouse.
+</Note>
+
+### `GLFMTouchFunc`
+
+```c
+typedef bool (*GLFMTouchFunc)(GLFMDisplay *display, int touch,
+                               GLFMTouchPhase phase, double x, double y);
+```
+
+Callback invoked when a mouse or touch event occurs. Register it with `glfmSetTouchFunc`.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="touch" type="int" required>
+  The touch number, starting at zero for the primary touch or primary mouse button. Values 1 and above are used for multitouch contacts or secondary mouse buttons.
+</ParamField>
+
+<ParamField path="phase" type="GLFMTouchPhase" required>
+  The current phase of the touch or mouse event.
+</ParamField>
+
+<ParamField path="x" type="double" required>
+  The x coordinate of the event, in pixels, measured from the top-left corner.
+</ParamField>
+
+<ParamField path="y" type="double" required>
+  The y coordinate of the event, in pixels, measured from the top-left corner.
+</ParamField>
+
+Returns `true` if the event was handled, `false` otherwise.
+
+### `glfmSetTouchFunc()`
+
+```c
+GLFMTouchFunc glfmSetTouchFunc(GLFMDisplay *display, GLFMTouchFunc touchFunc);
+```
+
+Registers the touch and mouse callback. Returns the previously registered function.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="touchFunc" type="GLFMTouchFunc" required>
+  The callback to invoke on touch or mouse events. Pass `NULL` to unregister.
+</ParamField>
+
+## Multitouch
+
+Multitouch is disabled by default. When disabled, only the first finger contact (touch zero) generates events. Enable multitouch to track additional contacts.
+
+### `glfmSetMultitouchEnabled()`
+
+```c
+void glfmSetMultitouchEnabled(GLFMDisplay *display, bool multitouchEnabled);
+```
+
+Enables or disables multitouch input.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="multitouchEnabled" type="bool" required>
+  `true` to enable multitouch, `false` to disable. Default is `false`.
+</ParamField>
+
+<Note>
+  This function does nothing on tvOS.
+</Note>
+
+### `glfmGetMultitouchEnabled()`
+
+```c
+bool glfmGetMultitouchEnabled(const GLFMDisplay *display);
+```
+
+Returns `true` if multitouch is currently enabled. Always returns `false` on tvOS.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+### `glfmHasTouch()`
+
+```c
+bool glfmHasTouch(const GLFMDisplay *display);
+```
+
+Returns `true` if the display has touch capabilities. Use this to tailor your UI: for example, showing on-screen controls only when no hardware pointing device is available.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+## Mouse wheel
+
+Mouse wheel events are only generated on Emscripten. On other platforms, `glfmSetMouseWheelFunc` registers the callback but it will never fire.
+
+### `GLFMMouseWheelDeltaType`
+
+Describes the unit of the wheel delta values.
+
+| Value | Description |
+|---|---|
+| `GLFMMouseWheelDeltaPixel` | Delta is in pixels. |
+| `GLFMMouseWheelDeltaLine` | Delta is in text lines. |
+| `GLFMMouseWheelDeltaPage` | Delta is in full pages. |
+
+When the delta type is `Line` or `Page`, multiply the delta by an appropriate pixel factor for smooth scrolling. The example below multiplies by 20.
+
+### `GLFMMouseWheelFunc`
+
+```c
+typedef bool (*GLFMMouseWheelFunc)(GLFMDisplay *display, double x, double y,
+                                   GLFMMouseWheelDeltaType deltaType,
+                                   double deltaX, double deltaY, double deltaZ);
+```
+
+Callback invoked when the mouse wheel is moved. Register it with `glfmSetMouseWheelFunc`.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="x" type="double" required>
+  The x coordinate of the cursor at the time of the event, in pixels.
+</ParamField>
+
+<ParamField path="y" type="double" required>
+  The y coordinate of the cursor at the time of the event, in pixels.
+</ParamField>
+
+<ParamField path="deltaType" type="GLFMMouseWheelDeltaType" required>
+  The unit of the delta values.
+</ParamField>
+
+<ParamField path="deltaX" type="double" required>
+  Horizontal scroll delta.
+</ParamField>
+
+<ParamField path="deltaY" type="double" required>
+  Vertical scroll delta.
+</ParamField>
+
+<ParamField path="deltaZ" type="double" required>
+  Depth scroll delta (rarely used).
+</ParamField>
+
+Returns `true` if the event was handled, `false` otherwise.
+
+### `glfmSetMouseWheelFunc()`
+
+```c
+GLFMMouseWheelFunc glfmSetMouseWheelFunc(GLFMDisplay *display,
+                                         GLFMMouseWheelFunc mouseWheelFunc);
+```
+
+Registers the mouse wheel callback. Only active on Emscripten. Returns the previously registered function.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="mouseWheelFunc" type="GLFMMouseWheelFunc" required>
+  The callback to invoke on wheel events. Pass `NULL` to unregister.
+</ParamField>
+
+## Mouse cursor
+
+### `GLFMMouseCursor`
+
+Controls the appearance of the mouse cursor on platforms that support it.
+
+| Value | Description |
+|---|---|
+| `GLFMMouseCursorAuto` | The platform chooses the cursor automatically. |
+| `GLFMMouseCursorNone` | The cursor is hidden. |
+| `GLFMMouseCursorDefault` | The platform default arrow cursor. |
+| `GLFMMouseCursorPointer` | A pointing hand, typically for links. |
+| `GLFMMouseCursorCrosshair` | A crosshair for precise selection. |
+| `GLFMMouseCursorText` | An I-beam for text input areas. |
+| `GLFMMouseCursorVerticalText` | A vertical I-beam for vertical text. |
+
+### `glfmSetMouseCursor()`
+
+```c
+void glfmSetMouseCursor(GLFMDisplay *display, GLFMMouseCursor mouseCursor);
+```
+
+Sets the mouse cursor shape. Only has a visible effect on platforms with a pointer device.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="mouseCursor" type="GLFMMouseCursor" required>
+  The cursor style to use.
+</ParamField>
+
+## Clipboard
+
+GLFM provides cross-platform access to the system clipboard. Text is always encoded as UTF-8.
+
+### `GLFMClipboardTextFunc`
+
+```c
+typedef void (*GLFMClipboardTextFunc)(GLFMDisplay *display, const char *string);
+```
+
+Callback invoked when clipboard text is received after a call to `glfmRequestClipboardText`.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="string" type="const char *" required>
+  A NULL-terminated UTF-8 string containing the clipboard text. May be `NULL` if the clipboard is empty or if the text could not be converted to UTF-8. The string is only valid during the callback; copy it if you need it afterward.
+</ParamField>
+
+### `glfmHasClipboardText()`
+
+```c
+bool glfmHasClipboardText(const GLFMDisplay *display);
+```
+
+Returns `true` if the system clipboard contains text.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<Warning>
+  On Emscripten, this returns `true` if the Clipboard API is available, not whether text is actually present. On tvOS, no clipboard API exists and this always returns `false`.
+</Warning>
+
+### `glfmRequestClipboardText()`
+
+```c
+void glfmRequestClipboardText(GLFMDisplay *display,
+                               GLFMClipboardTextFunc clipboardTextFunc);
+```
+
+Requests the text currently in the system clipboard. The callback is invoked once, possibly after a delay, and receives `NULL` if no text is available.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="clipboardTextFunc" type="GLFMClipboardTextFunc" required>
+  The callback to invoke when the text is available.
+</ParamField>
+
+<Note>
+  On Emscripten, this function may only be called from a user-generated event handler such as `GLFMTouchFunc` or `GLFMKeyFunc`. Firefox does not currently support reading from the clipboard. On tvOS, the callback is always invoked with `NULL`.
+</Note>
+
+### `glfmSetClipboardText()`
+
+```c
+bool glfmSetClipboardText(GLFMDisplay *display, const char *string);
+```
+
+Writes text to the system clipboard. Returns `true` on success, `false` otherwise. Always returns `false` on tvOS.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="string" type="const char *" required>
+  A NULL-terminated UTF-8 string to write to the clipboard.
+</ParamField>
+
+## Example
+
+The following is adapted from the `touch.c` example. It rotates a 3D cube by dragging with a finger or mouse, and also responds to scroll wheel input.
+
+```c
+static bool onTouch(GLFMDisplay *display, int touch, GLFMTouchPhase phase,
+                    double x, double y) {
+    // Ignore hover events — no contact, nothing to rotate.
+    if (phase == GLFMTouchPhaseHover) {
+        return false;
+    }
+    TouchApp *app = glfmGetUserData(display);
+    app->needsRedraw = true;
+    if (phase != GLFMTouchPhaseBegan) {
+        int width, height;
+        glfmGetDisplaySize(display, &width, &height);
+        app->angleX += (x - app->lastTouchX) / height;
+        app->angleY += (y - app->lastTouchY) / height;
+    }
+    app->lastTouchX = x;
+    app->lastTouchY = y;
+    return true;
+}
+
+static bool onScroll(GLFMDisplay *display, double x, double y,
+                     GLFMMouseWheelDeltaType deltaType,
+                     double deltaX, double deltaY, double deltaZ) {
+    TouchApp *app = glfmGetUserData(display);
+    int width, height;
+    glfmGetDisplaySize(display, &width, &height);
+    // Normalize line/page deltas to a pixel-equivalent scale.
+    if (deltaType != GLFMMouseWheelDeltaPixel) {
+        deltaX *= 20;
+        deltaY *= 20;
+    }
+    app->angleX -= deltaX / height;
+    app->angleY -= deltaY / height;
+    app->needsRedraw = true;
+    return true;
+}
+
+void glfmMain(GLFMDisplay *display) {
+    TouchApp *app = calloc(1, sizeof(TouchApp));
+    glfmSetUserData(display, app);
+    glfmSetTouchFunc(display, onTouch);
+    glfmSetMouseWheelFunc(display, onScroll);
+    // ...
+}
+```
+
+<Tip>
+  When you only need to track a single finger, leave multitouch disabled (the default). Enable it only when your app explicitly needs to distinguish between multiple simultaneous contacts.
+</Tip>

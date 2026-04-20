@@ -1,0 +1,421 @@
+---
+title: "GLFM enum types and GLFMSensorEvent reference"
+description: "Complete reference for all GLFM enums: rendering API, color and depth formats, UI chrome, orientations, touch phases, key modifiers, sensor types, and haptics."
+---
+
+GLFM defines a set of enumerations and a sensor data struct that appear throughout the API — from configuring the display surface, to handling input events, to reading hardware sensors. This page documents every enum type, its values, and their meaning.
+
+## Surface configuration
+
+### `GLFMRenderingAPI`
+
+The preferred rendering API to request when configuring the display. Pass to `glfmSetDisplayConfig`. The actual API in use can be read back with `glfmGetRenderingAPI` after the surface is created.
+
+```c
+typedef enum {
+    GLFMRenderingAPIOpenGLES2,
+    GLFMRenderingAPIOpenGLES3,
+    GLFMRenderingAPIOpenGLES31,
+    GLFMRenderingAPIOpenGLES32,
+    GLFMRenderingAPIMetal,
+} GLFMRenderingAPI;
+```
+
+| Value | Description |
+|---|---|
+| `GLFMRenderingAPIOpenGLES2` | OpenGL ES 2.0. The fallback when a higher version is unavailable. |
+| `GLFMRenderingAPIOpenGLES3` | OpenGL ES 3.0. |
+| `GLFMRenderingAPIOpenGLES31` | OpenGL ES 3.1. Android only. |
+| `GLFMRenderingAPIOpenGLES32` | OpenGL ES 3.2. Android only. |
+| `GLFMRenderingAPIMetal` | Apple Metal. Apple platforms only. |
+
+<Note>
+If the device does not support the preferred API, GLFM falls back to the next available option. Always check `glfmGetRenderingAPI` in your `GLFMSurfaceCreatedFunc` callback to confirm what was granted.
+</Note>
+
+---
+
+### `GLFMColorFormat`
+
+The pixel format for the color buffer.
+
+```c
+typedef enum {
+    GLFMColorFormatRGBA8888,
+    GLFMColorFormatRGB565,
+} GLFMColorFormat;
+```
+
+| Value | Description |
+|---|---|
+| `GLFMColorFormatRGBA8888` | 32-bit color: 8 bits per channel (red, green, blue, alpha). |
+| `GLFMColorFormatRGB565` | 16-bit color: 5 bits red, 6 bits green, 5 bits blue. Useful for reducing memory on low-end devices. |
+
+---
+
+### `GLFMDepthFormat`
+
+The depth buffer precision. Use `GLFMDepthFormatNone` if your app does not perform depth testing.
+
+```c
+typedef enum {
+    GLFMDepthFormatNone,
+    GLFMDepthFormat16,
+    GLFMDepthFormat24,
+    GLFMDepthFormat32,  // 32-bit float in Metal, 24-bit in OpenGL
+} GLFMDepthFormat;
+```
+
+| Value | Description |
+|---|---|
+| `GLFMDepthFormatNone` | No depth buffer. |
+| `GLFMDepthFormat16` | 16-bit depth buffer. |
+| `GLFMDepthFormat24` | 24-bit depth buffer. |
+| `GLFMDepthFormat32` | 32-bit floating-point depth on Metal; 24-bit depth on OpenGL ES. |
+
+<Warning>
+`GLFMDepthFormat32` behaves differently depending on the rendering backend. On Metal it provides a true 32-bit float depth buffer. On OpenGL ES the underlying implementation is 24-bit, matching `GLFMDepthFormat24`.
+</Warning>
+
+---
+
+### `GLFMStencilFormat`
+
+The stencil buffer bit depth.
+
+```c
+typedef enum {
+    GLFMStencilFormatNone,
+    GLFMStencilFormat8,
+} GLFMStencilFormat;
+```
+
+| Value | Description |
+|---|---|
+| `GLFMStencilFormatNone` | No stencil buffer. |
+| `GLFMStencilFormat8` | 8-bit stencil buffer. |
+
+---
+
+### `GLFMMultisample`
+
+The multisampling level for anti-aliasing.
+
+```c
+typedef enum {
+    GLFMMultisampleNone,
+    GLFMMultisample4X,
+} GLFMMultisample;
+```
+
+| Value | Description |
+|---|---|
+| `GLFMMultisampleNone` | No multisampling. |
+| `GLFMMultisample4X` | 4× MSAA anti-aliasing. |
+
+---
+
+### `GLFMSwapBehavior`
+
+Controls what happens to the back buffer contents after a buffer swap. This is an Android-only setting and must be configured before the surface is created.
+
+```c
+typedef enum {
+    GLFMSwapBehaviorPlatformDefault,
+    GLFMSwapBehaviorBufferDestroyed,
+    GLFMSwapBehaviorBufferPreserved,
+} GLFMSwapBehavior;
+```
+
+| Value | Description |
+|---|---|
+| `GLFMSwapBehaviorPlatformDefault` | Uses the platform-defined default behavior. |
+| `GLFMSwapBehaviorBufferDestroyed` | Back buffer contents are undefined after a swap. |
+| `GLFMSwapBehaviorBufferPreserved` | Back buffer contents are preserved after a swap. |
+
+---
+
+## UI chrome
+
+### `GLFMUserInterfaceChrome`
+
+Controls whether system UI chrome (status bar, navigation bar, home indicator) is visible.
+
+```c
+typedef enum {
+    GLFMUserInterfaceChromeNavigation,
+    GLFMUserInterfaceChromeNavigationAndStatusBar,
+    GLFMUserInterfaceChromeNone,
+} GLFMUserInterfaceChrome;
+```
+
+<AccordionGroup>
+  <Accordion title="GLFMUserInterfaceChromeNavigation">
+    Displays the app with the navigation bar only.
+
+    - **Android**: Shows the navigation bar.
+    - **iOS**: Shows the home indicator.
+  </Accordion>
+
+  <Accordion title="GLFMUserInterfaceChromeNavigationAndStatusBar">
+    Displays the app with both the navigation bar and the status bar.
+
+    - **Android**: Shows the navigation bar and status bar.
+    - **iOS**: Shows both the home indicator and the status bar.
+  </Accordion>
+
+  <Accordion title="GLFMUserInterfaceChromeNone">
+    Hides all system UI chrome for a fully immersive, fullscreen experience.
+
+    - **Android 2.3**: Fullscreen.
+    - **Android 4.0–4.3**: Navigation bar dimmed.
+    - **Android 4.4+**: Fullscreen immersive mode.
+    - **iOS**: Home indicator is dimmed but still accessible.
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+`GLFMUserInterfaceChromeFullscreen` is deprecated. Replace it with `GLFMUserInterfaceChromeNone`.
+</Note>
+
+---
+
+## Orientation
+
+### `GLFMInterfaceOrientation`
+
+A bitmask enum representing device interface orientations. Values can be combined with bitwise OR. Used with `glfmSetSupportedInterfaceOrientation` and `glfmGetInterfaceOrientation`.
+
+```c
+typedef enum {
+    GLFMInterfaceOrientationUnknown          = 0,
+    GLFMInterfaceOrientationPortrait         = (1 << 0),
+    GLFMInterfaceOrientationPortraitUpsideDown = (1 << 1),
+    GLFMInterfaceOrientationLandscapeLeft    = (1 << 2),
+    GLFMInterfaceOrientationLandscapeRight   = (1 << 3),
+    GLFMInterfaceOrientationLandscape        = (1 << 2) | (1 << 3),
+    GLFMInterfaceOrientationAll              = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3),
+    GLFMInterfaceOrientationAllButUpsideDown = (1 << 0) | (1 << 2) | (1 << 3),
+} GLFMInterfaceOrientation;
+```
+
+| Value | Bit(s) | Description |
+|---|---|---|
+| `GLFMInterfaceOrientationUnknown` | `0` | Orientation is not yet known. |
+| `GLFMInterfaceOrientationPortrait` | `1 << 0` | Upright portrait orientation. |
+| `GLFMInterfaceOrientationPortraitUpsideDown` | `1 << 1` | Portrait rotated 180°. |
+| `GLFMInterfaceOrientationLandscapeLeft` | `1 << 2` | Landscape with device rotated left. |
+| `GLFMInterfaceOrientationLandscapeRight` | `1 << 3` | Landscape with device rotated right. |
+| `GLFMInterfaceOrientationLandscape` | bits 2–3 | Convenience mask for both landscape orientations. |
+| `GLFMInterfaceOrientationAll` | bits 0–3 | All four orientations. |
+| `GLFMInterfaceOrientationAllButUpsideDown` | bits 0, 2–3 | Portrait, landscape left, and landscape right. |
+
+<Note>
+`GLFMUserInterfaceOrientation` and its values (`GLFMUserInterfaceOrientationAny`, etc.) are deprecated. Use `GLFMInterfaceOrientation` instead.
+</Note>
+
+---
+
+## Touch and pointer input
+
+### `GLFMTouchPhase`
+
+The lifecycle phase of a touch or mouse button event, reported in `GLFMTouchFunc`.
+
+```c
+typedef enum {
+    GLFMTouchPhaseHover,
+    GLFMTouchPhaseBegan,
+    GLFMTouchPhaseMoved,
+    GLFMTouchPhaseEnded,
+    GLFMTouchPhaseCancelled,
+} GLFMTouchPhase;
+```
+
+| Value | Description |
+|---|---|
+| `GLFMTouchPhaseHover` | Pointer is hovering without contact (mouse or Apple Pencil hover). |
+| `GLFMTouchPhaseBegan` | Touch or button press started. |
+| `GLFMTouchPhaseMoved` | Touch or pointer moved while active. |
+| `GLFMTouchPhaseEnded` | Touch or button release completed normally. |
+| `GLFMTouchPhaseCancelled` | Touch was cancelled by the system (e.g., an incoming call). |
+
+---
+
+### `GLFMMouseCursor`
+
+The cursor shape to display on platforms that support a mouse pointer. Set with `glfmSetMouseCursor`.
+
+```c
+typedef enum {
+    GLFMMouseCursorAuto,
+    GLFMMouseCursorNone,
+    GLFMMouseCursorDefault,
+    GLFMMouseCursorPointer,
+    GLFMMouseCursorCrosshair,
+    GLFMMouseCursorText,
+    GLFMMouseCursorVerticalText,
+} GLFMMouseCursor;
+```
+
+| Value | Description |
+|---|---|
+| `GLFMMouseCursorAuto` | Let the platform choose the cursor automatically. |
+| `GLFMMouseCursorNone` | Hide the cursor entirely. |
+| `GLFMMouseCursorDefault` | Standard arrow cursor. |
+| `GLFMMouseCursorPointer` | Pointing hand, used for interactive elements. |
+| `GLFMMouseCursorCrosshair` | Crosshair, used for precise selection. |
+| `GLFMMouseCursorText` | I-beam cursor for text input areas. |
+| `GLFMMouseCursorVerticalText` | Vertical I-beam for vertical text input. |
+
+---
+
+### `GLFMMouseWheelDeltaType`
+
+Describes the unit of the delta values reported by `GLFMMouseWheelFunc`. Available on Emscripten only.
+
+```c
+typedef enum {
+    GLFMMouseWheelDeltaPixel,
+    GLFMMouseWheelDeltaLine,
+    GLFMMouseWheelDeltaPage,
+} GLFMMouseWheelDeltaType;
+```
+
+| Value | Description |
+|---|---|
+| `GLFMMouseWheelDeltaPixel` | Delta is in pixels. |
+| `GLFMMouseWheelDeltaLine` | Delta is in lines of text. |
+| `GLFMMouseWheelDeltaPage` | Delta is in pages. |
+
+---
+
+## Keyboard input
+
+### `GLFMKeyAction`
+
+The action associated with a key event, reported in `GLFMKeyFunc`.
+
+```c
+typedef enum {
+    GLFMKeyActionPressed,
+    GLFMKeyActionRepeated,
+    GLFMKeyActionReleased,
+} GLFMKeyAction;
+```
+
+| Value | Description |
+|---|---|
+| `GLFMKeyActionPressed` | Key was pressed down. |
+| `GLFMKeyActionRepeated` | Key is being held and auto-repeating. Not available on iOS and tvOS. |
+| `GLFMKeyActionReleased` | Key was released. |
+
+---
+
+### `GLFMKeyModifier`
+
+Bitmask flags indicating which modifier keys are held when a key event fires. The `modifiers` parameter of `GLFMKeyFunc` is a bitwise OR of these values.
+
+```c
+typedef enum {
+    GLFMKeyModifierShift    = (1 << 0),
+    GLFMKeyModifierControl  = (1 << 1),
+    GLFMKeyModifierAlt      = (1 << 2),
+    GLFMKeyModifierMeta     = (1 << 3),
+    GLFMKeyModifierFunction = (1 << 4),
+} GLFMKeyModifier;
+```
+
+| Value | Bit | Description |
+|---|---|---|
+| `GLFMKeyModifierShift` | `0x01` | A Shift key is held. |
+| `GLFMKeyModifierControl` | `0x02` | A Control (Ctrl) key is held. |
+| `GLFMKeyModifierAlt` | `0x04` | An Alt key is held. On Apple platforms, this is the Option key. |
+| `GLFMKeyModifierMeta` | `0x08` | A Meta key is held. On Apple platforms, this is the Command key. |
+| `GLFMKeyModifierFunction` | `0x10` | The Function (Fn) key is held. Apple platforms only. |
+
+<Note>
+`GLFMKeyModifierCtrl` is deprecated. Replace it with `GLFMKeyModifierControl`.
+</Note>
+
+---
+
+## Sensors
+
+### `GLFMSensor`
+
+The hardware sensor type to use with `glfmIsSensorAvailable` and `glfmSetSensorFunc`.
+
+```c
+typedef enum {
+    GLFMSensorAccelerometer,
+    GLFMSensorMagnetometer,
+    GLFMSensorGyroscope,
+    GLFMSensorRotationMatrix,
+} GLFMSensor;
+```
+
+| Value | Description | Event data field |
+|---|---|---|
+| `GLFMSensorAccelerometer` | Linear acceleration sensor. | `vector` — acceleration in G's. |
+| `GLFMSensorMagnetometer` | Magnetic field sensor. | `vector` — magnetic field in microteslas. |
+| `GLFMSensorGyroscope` | Rotation rate sensor. | `vector` — rotation rate in radians/second. |
+| `GLFMSensorRotationMatrix` | Device orientation as a rotation matrix. X axis points North, Z axis is vertical. | `matrix` — 3×3 rotation matrix. |
+
+<Tip>
+Disable sensors when they are not needed by passing `NULL` as the `sensorFunc` to `glfmSetSensorFunc`. Active sensors drain battery even when the app is in the foreground.
+</Tip>
+
+---
+
+### `GLFMSensorEvent`
+
+The data structure passed to `GLFMSensorFunc` each time a sensor reading is available.
+
+```c
+typedef struct {
+    GLFMSensor sensor;
+    double timestamp;
+    union {
+        struct { double x, y, z; } vector;
+        struct {
+            double m00, m01, m02;
+            double m10, m11, m12;
+            double m20, m21, m22;
+        } matrix;
+    };
+} GLFMSensorEvent;
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `sensor` | `GLFMSensor` | The sensor that produced this reading. |
+| `timestamp` | `double` | Time of the reading in seconds. Not necessarily related to wall-clock time. |
+| `vector.x`, `.y`, `.z` | `double` | Sensor vector reading (used for all sensor types except `GLFMSensorRotationMatrix`). |
+| `matrix.m00`–`m22` | `double` | 3×3 rotation matrix (used only for `GLFMSensorRotationMatrix`). Row-major: `mRC` is row R, column C. |
+
+---
+
+## Haptics
+
+### `GLFMHapticFeedbackStyle`
+
+The intensity style for haptic feedback, used with `glfmPerformHapticFeedback`.
+
+```c
+typedef enum {
+    GLFMHapticFeedbackLight,
+    GLFMHapticFeedbackMedium,
+    GLFMHapticFeedbackHeavy,
+} GLFMHapticFeedbackStyle;
+```
+
+| Value | Description |
+|---|---|
+| `GLFMHapticFeedbackLight` | Subtle tap, suited to minor UI interactions. |
+| `GLFMHapticFeedbackMedium` | Moderate tap, suited to standard actions. |
+| `GLFMHapticFeedbackHeavy` | Strong tap, suited to significant or destructive actions. |
+
+<Note>
+Haptic feedback requires a device with a Taptic Engine (iPhone 7 or newer) running iOS 13 or later. Check availability with `glfmIsHapticFeedbackSupported` before calling `glfmPerformHapticFeedback`. On Emscripten, haptics are never supported.
+</Note>

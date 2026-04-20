@@ -1,0 +1,356 @@
+---
+title: "GLFM render loop, swap buffers, and surface events"
+description: "Register the render callback with glfmSetRenderFunc, call glfmSwapBuffers to present frames, and handle surface created, resized, destroyed, and error events."
+---
+
+GLFM drives rendering through callbacks rather than a blocking loop. You register a render function that GLFM calls before each frame, call `glfmSwapBuffers` when you have content to present, and respond to surface lifecycle events to manage GPU resources.
+
+---
+
+## glfmSetRenderFunc
+
+```c
+GLFMRenderFunc glfmSetRenderFunc(GLFMDisplay *display, GLFMRenderFunc renderFunc);
+```
+
+Registers the function GLFM calls before each frame is displayed. This is the main render callback and is typically called at 60 fps, though the actual rate depends on the platform and device display refresh rate.
+
+If your callback rendered any content, you must call `glfmSwapBuffers` before returning. If you rendered nothing (for example, in a pause state), return without calling `glfmSwapBuffers` to avoid unnecessary buffer swaps.
+
+**Typedef:**
+
+```c
+typedef void (*GLFMRenderFunc)(GLFMDisplay *display);
+```
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The display handle received in `glfmMain`.
+</ParamField>
+
+<ParamField path="renderFunc" type="GLFMRenderFunc" required>
+  Pointer to your render callback, or `NULL` to remove a previously registered callback.
+</ParamField>
+
+**Returns:** The previously registered `GLFMRenderFunc`, or `NULL` if none was set.
+
+```c
+static void onDraw(GLFMDisplay *display) {
+    int width, height;
+    glfmGetDisplaySize(display, &width, &height);
+    glViewport(0, 0, width, height);
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Draw scene...
+
+    glfmSwapBuffers(display);
+}
+
+void glfmMain(GLFMDisplay *display) {
+    glfmSetDisplayConfig(display,
+                         GLFMRenderingAPIOpenGLES2,
+                         GLFMColorFormatRGBA8888,
+                         GLFMDepthFormatNone,
+                         GLFMStencilFormatNone,
+                         GLFMMultisampleNone);
+    glfmSetRenderFunc(display, onDraw);
+}
+```
+
+<Tip>
+Only call `glfmSwapBuffers` when you have actually drawn something. Skipping it when there is nothing new to show avoids unnecessary GPU work and reduces power consumption.
+</Tip>
+
+---
+
+## glfmSwapBuffers
+
+```c
+void glfmSwapBuffers(GLFMDisplay *display);
+```
+
+Presents the rendered back buffer to the display. Call this at the end of your `GLFMRenderFunc` when you have rendered content.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The display handle.
+</ParamField>
+
+Platform behavior differences:
+
+- **Emscripten:** This function does nothing. The browser automatically swaps buffers whenever any OpenGL calls were made during the frame.
+- **Apple platforms (Metal):** This function does nothing when using the Metal rendering API. You must present the Metal drawable in your own code.
+- **iOS / Android / Emscripten (OpenGL ES):** Performs the EGL or platform buffer swap.
+
+<Warning>
+On Apple platforms using Metal, `glfmSwapBuffers` is a no-op. Failing to present the Metal drawable yourself will result in no output being shown. Check `glfmGetRenderingAPI` and call the appropriate Metal present function when using `GLFMRenderingAPIMetal`.
+</Warning>
+
+---
+
+## Surface lifecycle callbacks
+
+The surface can be created, resized, refreshed, and destroyed independently of the app process lifecycle. On Android in particular, the OpenGL ES context is lost and recreated whenever the app is backgrounded. Upload all GPU resources inside `GLFMSurfaceCreatedFunc` and release them in `GLFMSurfaceDestroyedFunc`.
+
+### glfmSetSurfaceCreatedFunc
+
+```c
+GLFMSurfaceCreatedFunc glfmSetSurfaceCreatedFunc(GLFMDisplay *display,
+                                                 GLFMSurfaceCreatedFunc surfaceCreatedFunc);
+```
+
+Registers a callback that fires when the rendering surface is first created or recreated after being destroyed.
+
+**Typedef:**
+
+```c
+typedef void (*GLFMSurfaceCreatedFunc)(GLFMDisplay *display, int width, int height);
+```
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The display handle.
+</ParamField>
+
+<ParamField path="surfaceCreatedFunc" type="GLFMSurfaceCreatedFunc" required>
+  Callback receiving the initial surface dimensions in pixels. Pass `NULL` to clear.
+</ParamField>
+
+**Returns:** The previously registered callback, or `NULL`.
+
+Use this callback to upload textures, compile shaders, and create any GPU resources. The rendering API is determined by this point, so call `glfmGetRenderingAPI` here to select the correct code path.
+
+```c
+static void onSurfaceCreated(GLFMDisplay *display, int width, int height) {
+    GLFMRenderingAPI api = glfmGetRenderingAPI(display);
+    if (api == GLFMRenderingAPIMetal) {
+        initMetal(display);
+    } else {
+        initOpenGLES(width, height);
+    }
+}
+```
+
+---
+
+### glfmSetSurfaceResizedFunc
+
+```c
+GLFMSurfaceResizedFunc glfmSetSurfaceResizedFunc(GLFMDisplay *display,
+                                                 GLFMSurfaceResizedFunc surfaceResizedFunc);
+```
+
+Registers a callback that fires when the surface is resized or when the device rotates.
+
+**Typedef:**
+
+```c
+typedef void (*GLFMSurfaceResizedFunc)(GLFMDisplay *display, int width, int height);
+```
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The display handle.
+</ParamField>
+
+<ParamField path="surfaceResizedFunc" type="GLFMSurfaceResizedFunc" required>
+  Callback receiving the new surface dimensions in pixels. Pass `NULL` to clear.
+</ParamField>
+
+**Returns:** The previously registered callback, or `NULL`.
+
+```c
+static void onSurfaceResized(GLFMDisplay *display, int width, int height) {
+    glViewport(0, 0, width, height);
+    updateProjectionMatrix((float)width / (float)height);
+}
+```
+
+---
+
+### glfmSetSurfaceDestroyedFunc
+
+```c
+GLFMSurfaceDestroyedFunc glfmSetSurfaceDestroyedFunc(GLFMDisplay *display,
+                                                     GLFMSurfaceDestroyedFunc surfaceDestroyedFunc);
+```
+
+Registers a callback that fires when the rendering surface is destroyed. The surface may be destroyed when the app loses an OpenGL context, which can happen on Android when the app is backgrounded.
+
+**Typedef:**
+
+```c
+typedef void (*GLFMSurfaceDestroyedFunc)(GLFMDisplay *display);
+```
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The display handle.
+</ParamField>
+
+<ParamField path="surfaceDestroyedFunc" type="GLFMSurfaceDestroyedFunc" required>
+  Callback with no size parameters. Pass `NULL` to clear.
+</ParamField>
+
+**Returns:** The previously registered callback, or `NULL`.
+
+<Warning>
+All OpenGL ES objects (textures, buffers, shaders, programs, framebuffers) become invalid when the surface is destroyed. Delete or zero out every handle in this callback. Failing to do so causes use-after-free errors when the surface is recreated.
+</Warning>
+
+```c
+static GLuint texture = 0;
+static GLuint vertexBuffer = 0;
+
+static void onSurfaceDestroyed(GLFMDisplay *display) {
+    // All existing GL resources are no longer valid.
+    texture = 0;
+    vertexBuffer = 0;
+}
+```
+
+---
+
+### glfmSetSurfaceRefreshFunc
+
+```c
+GLFMSurfaceRefreshFunc glfmSetSurfaceRefreshFunc(GLFMDisplay *display,
+                                                 GLFMSurfaceRefreshFunc surfaceRefreshFunc);
+```
+
+Registers a callback that fires when the surface needs to be redrawn — for example, after returning from the background or after a device rotation. The `GLFMRenderFunc` is called immediately after `GLFMSurfaceRefreshFunc`.
+
+**Typedef:**
+
+```c
+typedef void (*GLFMSurfaceRefreshFunc)(GLFMDisplay *display);
+```
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The display handle.
+</ParamField>
+
+<ParamField path="surfaceRefreshFunc" type="GLFMSurfaceRefreshFunc" required>
+  Callback with no size parameters. Pass `NULL` to clear.
+</ParamField>
+
+**Returns:** The previously registered callback, or `NULL`.
+
+Use this callback to set a dirty flag that forces a full redraw in apps that otherwise render only when the scene changes:
+
+```c
+static bool needsRedraw = true;
+
+static void onSurfaceRefresh(GLFMDisplay *display) {
+    needsRedraw = true;
+}
+
+static void onDraw(GLFMDisplay *display) {
+    if (!needsRedraw) return;
+    needsRedraw = false;
+    // Draw and swap...
+    glfmSwapBuffers(display);
+}
+```
+
+---
+
+### glfmSetSurfaceErrorFunc
+
+```c
+GLFMSurfaceErrorFunc glfmSetSurfaceErrorFunc(GLFMDisplay *display,
+                                             GLFMSurfaceErrorFunc surfaceErrorFunc);
+```
+
+Registers a callback that fires when the surface could not be created, for example when the browser does not support WebGL.
+
+**Typedef:**
+
+```c
+typedef void (*GLFMSurfaceErrorFunc)(GLFMDisplay *display, const char *message);
+```
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The display handle.
+</ParamField>
+
+<ParamField path="surfaceErrorFunc" type="GLFMSurfaceErrorFunc" required>
+  Callback receiving a NULL-terminated UTF-8 error message string. Pass `NULL` to clear.
+</ParamField>
+
+**Returns:** The previously registered callback, or `NULL`.
+
+```c
+static void onSurfaceError(GLFMDisplay *display, const char *message) {
+    // Show a user-facing error or log for debugging
+    fprintf(stderr, "Surface error: %s\n", message);
+}
+```
+
+---
+
+## Complete rendering setup example
+
+The following example draws a white triangle, demonstrates the full surface lifecycle, and shows the correct pattern for managing GPU resources across context loss and recreation:
+
+```c
+#include "glfm.h"
+#include <stdlib.h>
+
+static GLuint program = 0;
+static GLuint vertexBuffer = 0;
+
+static void onSurfaceCreated(GLFMDisplay *display, int width, int height);
+static void onSurfaceResized(GLFMDisplay *display, int width, int height);
+static void onSurfaceRefresh(GLFMDisplay *display);
+static void onSurfaceDestroyed(GLFMDisplay *display);
+static void onSurfaceError(GLFMDisplay *display, const char *message);
+static void onDraw(GLFMDisplay *display);
+
+void glfmMain(GLFMDisplay *display) {
+    glfmSetDisplayConfig(display,
+                         GLFMRenderingAPIOpenGLES2,
+                         GLFMColorFormatRGBA8888,
+                         GLFMDepthFormatNone,
+                         GLFMStencilFormatNone,
+                         GLFMMultisampleNone);
+
+    glfmSetSurfaceCreatedFunc(display, onSurfaceCreated);
+    glfmSetSurfaceResizedFunc(display, onSurfaceResized);
+    glfmSetSurfaceRefreshFunc(display, onSurfaceRefresh);
+    glfmSetSurfaceDestroyedFunc(display, onSurfaceDestroyed);
+    glfmSetSurfaceErrorFunc(display, onSurfaceError);
+    glfmSetRenderFunc(display, onDraw);
+}
+
+static void onSurfaceCreated(GLFMDisplay *display, int width, int height) {
+    // Upload textures, compile shaders, create buffers here.
+    // glfmGetRenderingAPI(display) is valid from this point on.
+}
+
+static void onSurfaceResized(GLFMDisplay *display, int width, int height) {
+    glViewport(0, 0, width, height);
+}
+
+static void onSurfaceRefresh(GLFMDisplay *display) {
+    // No action needed here; onDraw is called immediately after.
+}
+
+static void onSurfaceDestroyed(GLFMDisplay *display) {
+    // All GL handles are invalid. Zero them out so onDraw re-creates them.
+    program = 0;
+    vertexBuffer = 0;
+}
+
+static void onSurfaceError(GLFMDisplay *display, const char *message) {
+    fprintf(stderr, "Surface error: %s\n", message);
+}
+
+static void onDraw(GLFMDisplay *display) {
+    int width, height;
+    glfmGetDisplaySize(display, &width, &height);
+    glViewport(0, 0, width, height);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+    // Draw geometry...
+
+    glfmSwapBuffers(display);
+}
+```

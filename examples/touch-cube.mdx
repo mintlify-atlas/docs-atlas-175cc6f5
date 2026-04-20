@@ -1,0 +1,249 @@
+---
+title: "Touch cube: interactive 3D with GLFM input"
+description: "A detailed walkthrough of touch.c: app-state structs, touch and keyboard handlers, scroll events, surface lifecycle, and dirty-flag rendering."
+---
+
+`examples/touch.c` builds on the triangle example by adding a rotating colored cube and a full set of input handlers. It is the primary reference for GLFM's input API and for the user-data pattern that lets you pass application state through every callback without global variables.
+
+## App state struct
+
+All mutable state lives in a heap-allocated struct attached to the display:
+
+```c
+typedef struct {
+    GLuint program;
+    GLuint vertexBuffer;
+    GLuint vertexArray;
+    GLuint indexBuffer;
+
+    GLint modelLocation;
+    GLint viewProjLocation;
+
+    double lastTouchX;
+    double lastTouchY;
+
+    double angleX;
+    double angleY;
+
+    bool needsRedraw;
+} TouchApp;
+```
+
+`angleX` and `angleY` accumulate the total rotation applied to the cube. `lastTouchX` / `lastTouchY` record the previous touch position so the delta can be computed on each moved event. `needsRedraw` is the dirty flag: the cube is static between user interactions, so there is no reason to re-render every frame.
+
+## The user-data pattern
+
+GLFM doesn't provide a global app object. Instead, you allocate your state and register it with `glfmSetUserData`. Every callback receives the `GLFMDisplay *`, from which you retrieve the pointer with `glfmGetUserData`:
+
+```c
+void glfmMain(GLFMDisplay *display) {
+    TouchApp *app = calloc(1, sizeof(TouchApp));
+    // ... configure display ...
+    glfmSetUserData(display, app);
+    glfmSetRenderFunc(display, onDraw);
+    glfmSetTouchFunc(display, onTouch);
+    glfmSetKeyFunc(display, onKey);
+    glfmSetMouseWheelFunc(display, onScroll);
+}
+```
+
+`calloc` zero-initializes the struct, so all GL handles start at 0 and the dirty flag starts as `false`. Any callback can then recover the pointer:
+
+```c
+TouchApp *app = glfmGetUserData(display);
+```
+
+<Note>
+  GLFM does not own or free the user-data pointer. You are responsible for its lifetime. For a simple app like this one, allocating with `calloc` and never freeing is acceptable — the OS will reclaim the memory when the process exits.
+</Note>
+
+## Key concepts
+
+<Steps>
+  <Step title="Touch handler — tracking drag deltas">
+    ```c
+    static bool onTouch(GLFMDisplay *display, int touch, GLFMTouchPhase phase, double x, double y) {
+        if (phase == GLFMTouchPhaseHover) {
+            return false;
+        }
+        TouchApp *app = glfmGetUserData(display);
+        app->needsRedraw = true;
+        if (phase != GLFMTouchPhaseBegan) {
+            int width, height;
+            glfmGetDisplaySize(display, &width, &height);
+            app->angleX += (x - app->lastTouchX) / height;
+            app->angleY += (y - app->lastTouchY) / height;
+        }
+        app->lastTouchX = x;
+        app->lastTouchY = y;
+        return true;
+    }
+    ```
+
+    The callback receives one call per active finger (`touch` is the finger index). `GLFMTouchPhaseHover` is filtered out immediately — hover events fire on iPad with a Pencil or mouse and should not rotate the cube.
+
+    For `GLFMTouchPhaseBegan` the position is recorded but no delta is computed (there is no previous position yet). For `GLFMTouchPhaseMoved` and `GLFMTouchPhaseEnded` the position difference is divided by the display height to produce a rotation delta in fractions of a full turn. Using `height` for both axes keeps the sensitivity consistent regardless of aspect ratio.
+
+    Returning `true` signals that the event was consumed and should not be propagated further.
+  </Step>
+
+  <Step title="Key handler — arrow keys and escape">
+    ```c
+    static bool onKey(GLFMDisplay *display, GLFMKeyCode keyCode, GLFMKeyAction action, int modifiers) {
+        bool handled = false;
+        if (action == GLFMKeyActionPressed || action == GLFMKeyActionRepeated) {
+            TouchApp *app = glfmGetUserData(display);
+            switch (keyCode) {
+                case GLFMKeyCodeArrowLeft:
+                    app->angleX -= 0.01f;
+                    handled = true;
+                    break;
+                case GLFMKeyCodeArrowRight:
+                    app->angleX += 0.01f;
+                    handled = true;
+                    break;
+                case GLFMKeyCodeArrowUp:
+                    app->angleY -= 0.01f;
+                    handled = true;
+                    break;
+                case GLFMKeyCodeArrowDown:
+                    app->angleY += 0.01f;
+                    handled = true;
+                    break;
+                case GLFMKeyCodeEscape:
+                    app->angleX = 0.0f;
+                    app->angleY = 0.0f;
+                    handled = true;
+                    break;
+                default:
+                    break;
+            }
+            app->needsRedraw |= handled;
+        }
+        return handled;
+    }
+    ```
+
+    The key callback fires for both `GLFMKeyActionPressed` (initial press) and `GLFMKeyActionRepeated` (key-repeat while held). Checking both lets the user hold an arrow key to spin the cube continuously. Each arrow nudges the angle by 0.01 of a full turn. Escape resets both angles to zero. The `needsRedraw` flag is set with `|=` so it can't be accidentally cleared if multiple keys fire in the same frame.
+  </Step>
+
+  <Step title="Scroll / mouse-wheel handler">
+    ```c
+    static bool onScroll(GLFMDisplay *display, double x, double y, GLFMMouseWheelDeltaType deltaType,
+                         double deltaX, double deltaY, double deltaZ) {
+        TouchApp *app = glfmGetUserData(display);
+        int width, height;
+        glfmGetDisplaySize(display, &width, &height);
+        if (deltaType != GLFMMouseWheelDeltaPixel) {
+            deltaX *= 20;
+            deltaY *= 20;
+        }
+        app->angleX -= deltaX / height;
+        app->angleY -= deltaY / height;
+        app->needsRedraw = true;
+        return true;
+    }
+    ```
+
+    The `deltaType` field distinguishes between pixel-precise trackpad data (`GLFMMouseWheelDeltaPixel`) and line-based or page-based wheel clicks. Line/page deltas are multiplied by 20 to match the perceived magnitude of a pixel-based swipe. The same `height`-normalisation used in the touch handler is applied here for consistent sensitivity.
+  </Step>
+
+  <Step title="Surface lifecycle callbacks">
+    The touch example registers three surface callbacks in addition to the render function:
+
+    ```c
+    glfmSetSurfaceCreatedFunc(display, onSurfaceCreated);
+    glfmSetSurfaceRefreshFunc(display, onSurfaceRefresh);
+    glfmSetSurfaceDestroyedFunc(display, onSurfaceDestroyed);
+    ```
+
+    **`onSurfaceCreated`** fires once when the GL context first becomes available. Here it just prints the active API version:
+
+    ```c
+    static void onSurfaceCreated(GLFMDisplay *display, int width, int height) {
+        GLFMRenderingAPI api = glfmGetRenderingAPI(display);
+        printf("Hello from GLFM! Using OpenGL %s\n",
+               api == GLFMRenderingAPIOpenGLES32 ? "ES 3.2" :
+               api == GLFMRenderingAPIOpenGLES31 ? "ES 3.1" :
+               api == GLFMRenderingAPIOpenGLES3  ? "ES 3.0" : "ES 2.0");
+    }
+    ```
+
+    **`onSurfaceRefresh`** fires when the platform asks the app to repaint immediately (e.g. after a window un-occlude event). Setting `needsRedraw` ensures the next `onDraw` call actually produces a frame:
+
+    ```c
+    static void onSurfaceRefresh(GLFMDisplay *display) {
+        TouchApp *app = glfmGetUserData(display);
+        app->needsRedraw = true;
+    }
+    ```
+
+    **`onSurfaceDestroyed`** resets all GL handles to zero. The context is gone at this point, so no GL calls are made — just zeroing:
+
+    ```c
+    static void onSurfaceDestroyed(GLFMDisplay *display) {
+        TouchApp *app = glfmGetUserData(display);
+        app->program = 0;
+        app->vertexBuffer = 0;
+        app->vertexArray = 0;
+        app->indexBuffer = 0;
+        printf("Goodbye\n");
+    }
+    ```
+  </Step>
+
+  <Step title="Draw function — dirty-flag rendering and rotation math">
+    `onDraw` only renders when `needsRedraw` is true, which avoids burning GPU cycles on a static image:
+
+    ```c
+    static void onDraw(GLFMDisplay *display) {
+        TouchApp *app = glfmGetUserData(display);
+        if (app->needsRedraw) {
+            app->needsRedraw = false;
+
+            int width, height;
+            glfmGetDisplaySize(display, &width, &height);
+            draw(app, width, height);
+            glfmSwapBuffers(display);
+        }
+    }
+    ```
+
+    The actual GL work lives in a separate `draw` function. After lazy-creating the shader program and buffers, it builds the model matrix from `angleX` and `angleY`:
+
+    ```c
+    float cx = cosf(app->angleY * -2 * M_PI - M_PI / 4);
+    float sx = sinf(app->angleY * -2 * M_PI - M_PI / 4);
+    float cy = cosf(app->angleX * -2 * M_PI - M_PI / 4);
+    float sy = sinf(app->angleX * -2 * M_PI - M_PI / 4);
+
+    const GLfloat model[16] = {
+           cy, sx*sy, cx*sy,  0.0f,
+         0.0f,    cx,   -sx,  0.0f,
+          -sy, sx*cy, cx*cy,  0.0f,
+         0.0f,  0.0f,     z,  1.0f,
+    };
+    ```
+
+    The angles are stored as fractions of a full turn (0–1 range from the delta arithmetic), then converted to radians by multiplying by `-2π`. The `-π/4` offset rotates the cube 45° at rest so three faces are visible. The resulting matrix is a combined Y-then-X rotation with a Z translation (`z = -3.0f`) baked in as the fourth column, pushing the cube away from the camera.
+
+    A simple projection matrix scales X by the height-to-width ratio to compensate for non-square displays:
+
+    ```c
+    float ratio = (float)height / (float)width;
+
+    const GLfloat viewProj[16] = {
+        ratio,  0.0f,  0.0f,  0.0f,
+         0.0f,  1.0f,  0.0f,  0.0f,
+         0.0f,  0.0f, -1.0f, -1.0f,
+         0.0f,  0.0f,  0.00,  1.0f,
+    };
+    ```
+
+    Both matrices are uploaded as uniforms and the cube is drawn with `glDrawElements` using the pre-built index buffer of 36 indices (6 faces × 2 triangles × 3 vertices).
+
+    <Tip>
+      The dirty-flag pattern used here is ideal for interaction-driven apps where most frames would be identical. For continuously animated content, see `examples/anim.c`, which calls `glfmSwapBuffers` unconditionally every frame and uses `glfmGetTime` to drive animation.
+    </Tip>
+  </Step>
+</Steps>

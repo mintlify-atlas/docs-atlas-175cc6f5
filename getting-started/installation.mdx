@@ -1,0 +1,136 @@
+---
+title: "Add GLFM to your iOS, Android, or WebGL project"
+description: "Add GLFM to an iOS, tvOS, Android, or Emscripten project using CMake or by including the single header and platform source file directly."
+---
+
+GLFM is a small library — a single header (`include/glfm.h`) and one platform-specific source file in `src/`. A `CMakeLists.txt` is provided for convenience, but CMake is not required. You can add the files to any existing build system.
+
+## Two approaches
+
+<Tabs>
+  <Tab title="With CMake">
+    CMake is the easiest way to integrate GLFM and works on all three target platforms.
+
+    Add GLFM as a subdirectory or use `FetchContent`:
+
+    ```cmake CMakeLists.txt
+    cmake_minimum_required(VERSION 3.18.0)
+    project(MyApp C)
+
+    # Option 1: add as a subdirectory if you have GLFM checked out locally
+    add_subdirectory(path/to/glfm)
+
+    # Option 2: fetch from GitHub
+    include(FetchContent)
+    FetchContent_Declare(
+        glfm
+        GIT_REPOSITORY https://github.com/brackeen/glfm.git
+        GIT_TAG        main
+    )
+    FetchContent_MakeAvailable(glfm)
+
+    add_executable(myapp main.c)
+    target_link_libraries(myapp glfm)
+    ```
+
+    GLFM's `CMakeLists.txt` automatically selects the correct platform source file and links the required system libraries (EGL, GLESv2, android, log on Android; UIKit frameworks on Apple platforms).
+
+    ### iOS and tvOS
+
+    Generate an Xcode project with CMake:
+
+    ```shell
+    cmake -B build/apple -G Xcode
+    open build/apple/GLFM.xcodeproj
+    ```
+
+    See the [iOS and tvOS building guide](/building/ios-tvos) for selecting the right scheme and deployment target.
+
+    ### Android
+
+    Point Android Studio's external native build at your `CMakeLists.txt`. In `app/build.gradle`:
+
+    ```gradle app/build.gradle
+    android {
+        defaultConfig {
+            externalNativeBuild {
+                cmake {
+                    arguments "-DGLFM_BUILD_EXAMPLES=OFF"
+                }
+            }
+        }
+        externalNativeBuild {
+            cmake {
+                path "../CMakeLists.txt"
+            }
+        }
+    }
+    ```
+
+    See the [Android building guide](/building/android) for the full `AndroidManifest.xml` and Gradle setup.
+
+    ### Emscripten
+
+    Use `emcmake` to configure, then build normally:
+
+    ```shell
+    emcmake cmake -B build/emscripten
+    cmake --build build/emscripten
+    emrun build/emscripten/myapp.html
+    ```
+
+    See the [Emscripten building guide](/building/emscripten) for linker flags and shell file setup.
+  </Tab>
+  <Tab title="Without CMake">
+    If you prefer to manage your own build system, add these files directly to your project:
+
+    ```
+    include/glfm.h          ← public header (add include/ to your include path)
+    src/glfm_internal.h     ← internal header
+    src/glfm_apple.m        ← compile on iOS and tvOS
+    src/glfm_android.c      ← compile on Android
+    src/glfm_emscripten.c   ← compile for Emscripten
+    ```
+
+    Compile only the source file that matches your target platform. On Android you also need to link `log`, `android`, `EGL`, and `GLESv2`.
+
+    ```c your_app.c
+    #include "glfm.h"
+
+    void glfmMain(GLFMDisplay *display) {
+        glfmSetDisplayConfig(display,
+                             GLFMRenderingAPIOpenGLES2,
+                             GLFMColorFormatRGBA8888,
+                             GLFMDepthFormatNone,
+                             GLFMStencilFormatNone,
+                             GLFMMultisampleNone);
+        glfmSetRenderFunc(display, onDraw);
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Release builds
+
+<Note>
+Define `NDEBUG` when compiling release builds to remove superfluous logging statements from GLFM's internals. Android Studio sets `NDEBUG` automatically for release variants; Xcode does not. Add it manually in your Xcode project's Release build settings under **Preprocessor Macros**.
+</Note>
+
+## Next steps
+
+Once GLFM is in your project, write your first app:
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/getting-started/quickstart">
+    Render a triangle with a step-by-step walkthrough of the core API.
+  </Card>
+  <Card title="Building for iOS / tvOS" icon="apple" href="/building/ios-tvos">
+    Configure Xcode targets, signing, and deployment settings.
+  </Card>
+  <Card title="Building for Android" icon="android" href="/building/android">
+    Full Android Studio and Gradle setup with AndroidManifest details.
+  </Card>
+  <Card title="Building for Emscripten" icon="globe" href="/building/emscripten">
+    Compile to WebAssembly and run in a browser with emcmake.
+  </Card>
+</CardGroup>

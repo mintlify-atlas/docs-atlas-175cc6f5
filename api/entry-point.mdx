@@ -1,0 +1,193 @@
+---
+title: "glfmMain: entry point, user data, and utilities"
+description: "Implement glfmMain — the required entry point for every GLFM app — then use glfmSetUserData, glfmGetTime, and glfmGetProcAddress for state and extensions."
+---
+
+Every GLFM app starts in `glfmMain`. This function replaces the standard `main()` entry point and is called by the platform after the display is ready. You must implement it in your own code — GLFM declares it `extern` but never defines it.
+
+<Note>
+On iOS, the UIKit framework owns the main thread and the application lifecycle, so a traditional `main()` function cannot serve as the app entry point. GLFM calls `glfmMain` at the appropriate point in the iOS app startup sequence, giving you a display handle that is ready to configure.
+</Note>
+
+## glfmMain
+
+```c
+extern void glfmMain(GLFMDisplay *display);
+```
+
+The single required function every GLFM app must implement. GLFM passes in a pre-allocated `GLFMDisplay` handle; you configure it and register callbacks before returning.
+
+Inside `glfmMain` you should:
+1. Call `glfmSetDisplayConfig` to request a rendering API, color format, depth buffer, stencil buffer, and multisampling.
+2. Call `glfmSetRenderFunc` to register the function GLFM calls before each frame.
+3. Optionally call `glfmSetUserData` to attach application state to the display handle.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  Opaque handle to the display. All GLFM functions that operate on the display accept this pointer. Do not free or store it across platform lifecycle events.
+</ParamField>
+
+### Complete example
+
+```c
+#include "glfm.h"
+#include <stdlib.h>
+
+typedef struct {
+    GLint program;
+    double startTime;
+} MyApp;
+
+static void onDraw(GLFMDisplay *display);
+static void onSurfaceDestroyed(GLFMDisplay *display);
+
+void glfmMain(GLFMDisplay *display) {
+    MyApp *app = calloc(1, sizeof(MyApp));
+    app->startTime = glfmGetTime();
+
+    glfmSetDisplayConfig(display,
+                         GLFMRenderingAPIOpenGLES2,
+                         GLFMColorFormatRGBA8888,
+                         GLFMDepthFormatNone,
+                         GLFMStencilFormatNone,
+                         GLFMMultisampleNone);
+
+    glfmSetUserData(display, app);
+    glfmSetRenderFunc(display, onDraw);
+    glfmSetSurfaceDestroyedFunc(display, onSurfaceDestroyed);
+}
+
+static void onSurfaceDestroyed(GLFMDisplay *display) {
+    MyApp *app = glfmGetUserData(display);
+    free(app);
+}
+
+static void onDraw(GLFMDisplay *display) {
+    double elapsed = glfmGetTime() - ((MyApp *)glfmGetUserData(display))->startTime;
+    // Render using elapsed time...
+    glfmSwapBuffers(display);
+}
+```
+
+---
+
+## glfmSetUserData
+
+```c
+void glfmSetUserData(GLFMDisplay *display, void *userData);
+```
+
+Attaches an arbitrary pointer to the display handle. GLFM neither reads nor modifies the pointer. Use this to pass application state into callbacks without global variables.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The display handle received in `glfmMain`.
+</ParamField>
+
+<ParamField path="userData" type="void *" required>
+  Pointer to any application-defined data. Pass `NULL` to clear a previously set value.
+</ParamField>
+
+---
+
+## glfmGetUserData
+
+```c
+void *glfmGetUserData(const GLFMDisplay *display);
+```
+
+Returns the pointer previously set with `glfmSetUserData`, or `NULL` if none was set.
+
+<ParamField path="display" type="const GLFMDisplay *" required>
+  The display handle.
+</ParamField>
+
+### User data pattern
+
+The idiomatic GLFM pattern is to allocate a struct in `glfmMain`, store it with `glfmSetUserData`, and retrieve it at the top of every callback:
+
+```c
+typedef struct {
+    int score;
+    bool paused;
+} GameState;
+
+void glfmMain(GLFMDisplay *display) {
+    GameState *state = calloc(1, sizeof(GameState));
+    glfmSetUserData(display, state);
+    // ...
+}
+
+static void onDraw(GLFMDisplay *display) {
+    GameState *state = glfmGetUserData(display);
+    if (state->paused) return;
+    // Render...
+    glfmSwapBuffers(display);
+}
+```
+
+<Tip>
+Allocate your state with `calloc` so all fields start at zero, then free it in your `GLFMSurfaceDestroyedFunc` or in a dedicated app-focus callback when the app exits.
+</Tip>
+
+---
+
+## glfmGetTime
+
+```c
+double glfmGetTime(void);
+```
+
+Returns the current value of the highest-precision timer available on the platform, in seconds. The value is not related to wall-clock time and has no defined epoch — use it only to measure elapsed time between two calls.
+
+**Returns:** A `double` representing a monotonically increasing time in seconds.
+
+```c
+static double lastTime = 0.0;
+
+static void onDraw(GLFMDisplay *display) {
+    double now = glfmGetTime();
+    double delta = now - lastTime;
+    lastTime = now;
+
+    // Use delta (seconds since last frame) for animation...
+    glfmSwapBuffers(display);
+}
+```
+
+<Note>
+`glfmGetTime` takes no parameters and can be called from any context, not only from callbacks. It is safe to call before `glfmMain` returns.
+</Note>
+
+---
+
+## glfmGetProcAddress
+
+```c
+GLFMProc glfmGetProcAddress(const char *functionName);
+```
+
+Returns a function pointer for the named OpenGL ES extension function. The return type `GLFMProc` is defined as `void (*)(void)` and must be cast to the correct function signature before use.
+
+<ParamField path="functionName" type="const char *" required>
+  NULL-terminated string containing the name of the OpenGL ES function or extension entry point to look up (for example, `"glDrawElementsInstancedEXT"`).
+</ParamField>
+
+**Returns:** A `GLFMProc` function pointer, or `NULL` if the function is not available.
+
+```c
+typedef void (*PFNGLDRAWELEMENTSINSTANCEDEXTPROC)(GLenum, GLsizei, GLenum,
+                                                  const void *, GLsizei);
+
+static void loadExtensions(void) {
+    PFNGLDRAWELEMENTSINSTANCEDEXTPROC glDrawElementsInstancedEXT =
+        (PFNGLDRAWELEMENTSINSTANCEDEXTPROC)glfmGetProcAddress(
+            "glDrawElementsInstancedEXT");
+
+    if (glDrawElementsInstancedEXT) {
+        // Extension is available
+    }
+}
+```
+
+<Warning>
+Call `glfmGetProcAddress` only after the surface has been created (inside `GLFMSurfaceCreatedFunc` or later). Extension availability is not guaranteed until an OpenGL ES context exists.
+</Warning>

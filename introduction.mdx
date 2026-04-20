@@ -1,0 +1,91 @@
+---
+title: "GLFM: cross-platform OpenGL ES for mobile and web"
+description: "GLFM is a C API for OpenGL ES apps on iOS, tvOS, Android, and WebGL. Learn what it provides, which platforms it supports, and its intentional non-goals."
+---
+
+GLFM is a C API for mobile app development with OpenGL ES. Inspired by [GLFW](https://github.com/glfw/glfw), it provides a minimal, event-driven interface for display setup, touch and keyboard input, hardware sensors, and application lifecycle across iOS, tvOS, Android, and WebGL (via Emscripten). You implement `glfmMain()` as your entry point and register callbacks — GLFM takes over the platform run loop so you don't have to.
+
+## Platform support
+
+GLFM targets four platforms from a single C codebase. Metal is additionally available on Apple platforms.
+
+| Feature | iOS | tvOS | Android | Web |
+|---|---|---|---|---|
+| OpenGL ES 2, OpenGL ES 3 | ✔ | ✔ | ✔ | ✔ |
+| Metal | ✔ | ✔ | — | — |
+| Retina / high-DPI | ✔ | ✔ | ✔ | ✔ |
+| Device orientation | ✔ | — | ✔ | — |
+| Touch events | ✔ | ✔ | ✔ | ✔ |
+| Mouse hover events | ✔ ¹ | — | — | ✔ |
+| Mouse wheel events | — | — | — | ✔ |
+| Mouse cursor style | ✔ ¹ | — | — | ✔ |
+| Key code events | ✔ ² | ✔ | ✔ | ✔ |
+| Key repeat events | — | — | ✔ | ✔ |
+| Character input events | ✔ | ✔ ³ | ✔ | ✔ |
+| Virtual keyboard | ✔ | — | ✔ | — |
+| Virtual keyboard visibility events | ✔ | — | ✔ | — |
+| Accelerometer, magnetometer, gyroscope | ✔ | — | ✔ | — |
+| Haptic feedback | ✔ ⁴ | — | ✔ | — |
+| Clipboard | ✔ | — | ✔ | ✔ |
+| Chrome insets ("safe area") | ✔ ⁵ | ✔ | ✔ | — |
+| Focus events | ✔ | ✔ | ✔ | ✔ |
+| Memory warning events | ✔ | ✔ | ✔ | — |
+| OpenGL context loss events | ✔ | ✔ | ✔ | ✔ |
+
+<sub>1. iPad only, requires iOS 13.4 or newer · 2. Requires iOS/tvOS 13.4 or newer · 3. Requires tvOS 13.4 or newer · 4. Requires iOS 13 or newer (iPhone 7+) · 5. Requires iOS/tvOS 11 or newer</sub>
+
+<Note>
+There is preliminary macOS support with OpenGL 3.2, which is useful for development but is not release quality. There is no function to set the window size, for example.
+</Note>
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="OpenGL ES 2, 3, and Metal" icon="display">
+    Choose the rendering API that fits your target devices. GLFM falls back to the next available API if the preferred one is unavailable.
+  </Card>
+  <Card title="Retina / high-DPI" icon="magnifying-glass">
+    `glfmGetDisplayScale()` returns the device pixel ratio so your rendering adapts to high-density screens on all platforms.
+  </Card>
+  <Card title="Input events" icon="hand-pointer">
+    Unified touch, mouse, keyboard, and mouse wheel callbacks with platform-appropriate behavior and multitouch support.
+  </Card>
+  <Card title="Hardware sensors" icon="compass">
+    Accelerometer, magnetometer, gyroscope, and rotation matrix on iOS and Android. Sensors are automatically paused when the app is inactive.
+  </Card>
+  <Card title="Application lifecycle" icon="rotate">
+    Callbacks for surface created, resized, destroyed, focus gained/lost, and low memory warnings let you manage OpenGL resources safely.
+  </Card>
+  <Card title="Safe area insets" icon="crop">
+    `glfmGetDisplayChromeInsets()` exposes the space consumed by notches, home indicators, and navigation bars.
+  </Card>
+</CardGroup>
+
+## Non-goals
+
+GLFM is intentionally minimal. It will never provide:
+
+- Image loading
+- Text rendering
+- Audio playback
+- Menus, UI toolkits, or scene graphs
+- Integration with platform features like web views, maps, or game center
+
+Use GLFM alongside other cross-platform C libraries for those capabilities.
+
+## Frequently asked questions
+
+<AccordionGroup>
+  <Accordion title="Why is the entry point glfmMain() and not main()?">
+    On iOS, the `main()` function must create an autorelease pool and call `UIApplicationMain()`, which never returns. GLFM's own `main()` handles that setup and only calls your `glfmMain()` after the `UIApplicationDelegate` and `UIViewController` are fully initialized. Using a standard `main()` would make iOS support impossible.
+  </Accordion>
+  <Accordion title="Why is GLFM event-driven? Why does GLFM take over the main loop?">
+    The same reason as above: `UIApplicationMain()` on iOS and the browser's event loop on WebGL are both non-blocking run loops that GLFM must integrate with. Taking control of the main loop is the only portable way to support all target platforms.
+  </Accordion>
+  <Accordion title="What IDE should I use?">
+    Use **Xcode** for iOS and tvOS targets, and **Android Studio** for Android. For everyday development without a mobile simulator, consider using [GLFW](https://github.com/glfw/glfw) on the desktop and porting to GLFM later. For maximum OpenGL portability, target OpenGL 3.2 Core Profile on desktop and OpenGL ES 2.0 on mobile.
+  </Accordion>
+  <Accordion title="Is GLFM thread-safe?">
+    No. All GLFM functions must be called on the main thread — from `glfmMain()` or from GLFM callback functions.
+  </Accordion>
+</AccordionGroup>

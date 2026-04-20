@@ -1,0 +1,429 @@
+---
+title: "Keyboard input: key codes, actions, and text input"
+description: "Handle physical and virtual keyboard input with key event callbacks, UTF-8 character input, and virtual keyboard visibility control."
+---
+
+GLFM exposes keyboard input through two complementary callbacks. The key callback fires for individual key press, repeat, and release events. The character callback fires with the resulting UTF-8 text, which is more appropriate for text input fields. On mobile, you must explicitly show the virtual keyboard before either callback fires.
+
+## Key events
+
+### `GLFMKeyAction`
+
+The action associated with a key event.
+
+| Value | Description |
+|---|---|
+| `GLFMKeyActionPressed` | The key was pressed down. |
+| `GLFMKeyActionRepeated` | The key is being held and an auto-repeat event fired. |
+| `GLFMKeyActionReleased` | The key was released. |
+
+<Note>
+  iOS and tvOS do not generate `GLFMKeyActionRepeated` events.
+</Note>
+
+### `GLFMKeyModifier`
+
+Bit flags indicating which modifier keys are held at the time of a key event. Combine with bitwise OR to test for multiple modifiers.
+
+| Flag | Description |
+|---|---|
+| `GLFMKeyModifierShift` | A Shift key is held. |
+| `GLFMKeyModifierControl` | A Control (Ctrl) key is held. |
+| `GLFMKeyModifierAlt` | An Alt key is held (Option on Apple platforms). |
+| `GLFMKeyModifierMeta` | A Meta key is held (Command on Apple platforms). |
+| `GLFMKeyModifierFunction` | The Fn key is held (Apple platforms only). |
+
+### `GLFMKeyFunc`
+
+```c
+typedef bool (*GLFMKeyFunc)(GLFMDisplay *display, GLFMKeyCode keyCode,
+                             GLFMKeyAction action, int modifiers);
+```
+
+Callback invoked when a key event occurs. It is called before `GLFMCharFunc` for each key press. Register it with `glfmSetKeyFunc`.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="keyCode" type="GLFMKeyCode" required>
+  The key that triggered the event.
+</ParamField>
+
+<ParamField path="action" type="GLFMKeyAction" required>
+  Whether the key was pressed, repeated, or released.
+</ParamField>
+
+<ParamField path="modifiers" type="int" required>
+  A bitmask of `GLFMKeyModifier` flags indicating which modifier keys are held.
+</ParamField>
+
+Returns `true` if the event was handled, `false` otherwise.
+
+<Warning>
+  On Android and tvOS, when the user presses the back button (`GLFMKeyCodeNavigationBack`), return `false` to allow the system to exit the app. Return `true` only if your app handles the back action itself.
+</Warning>
+
+### `glfmSetKeyFunc()`
+
+```c
+GLFMKeyFunc glfmSetKeyFunc(GLFMDisplay *display, GLFMKeyFunc keyFunc);
+```
+
+Registers the key event callback. Returns the previously registered function.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="keyFunc" type="GLFMKeyFunc" required>
+  The callback to invoke on key events. Pass `NULL` to unregister.
+</ParamField>
+
+<Note>
+  Key events on iOS and tvOS require iOS 13.4 / tvOS 13.4 or later. No repeated events are sent on those platforms. On iOS and Android, call `glfmSetKeyboardVisible` to show the virtual keyboard before key events can be generated.
+</Note>
+
+## Key codes
+
+`GLFMKeyCode` identifies the physical key that was pressed, independent of the current keyboard layout or modifier state. Key codes with values in the ASCII range (0x08–0x7F) match their ASCII equivalents (uppercase letters).
+
+### Printable keys
+
+| Key code | Value | Notes |
+|---|---|---|
+| `GLFMKeyCodeSpace` | `0x20` | |
+| `GLFMKeyCodeQuote` | `0x27` | `'` |
+| `GLFMKeyCodeComma` | `0x2C` | `,` |
+| `GLFMKeyCodeMinus` | `0x2D` | `-` |
+| `GLFMKeyCodePeriod` | `0x2E` | `.` |
+| `GLFMKeyCodeSlash` | `0x2F` | `/` |
+| `GLFMKeyCode0`–`GLFMKeyCode9` | `0x30`–`0x39` | Digit row |
+| `GLFMKeyCodeSemicolon` | `0x3B` | `;` |
+| `GLFMKeyCodeEqual` | `0x3D` | `=` |
+| `GLFMKeyCodeA`–`GLFMKeyCodeZ` | `0x41`–`0x5A` | Letter keys |
+| `GLFMKeyCodeBracketLeft` | `0x5B` | `[` |
+| `GLFMKeyCodeBackslash` | `0x5C` | `\` |
+| `GLFMKeyCodeBracketRight` | `0x5D` | `]` |
+| `GLFMKeyCodeBackquote` | `0x60` | `` ` `` (grave) |
+
+### Control and editing keys
+
+| Key code | Value | Notes |
+|---|---|---|
+| `GLFMKeyCodeBackspace` | `0x08` | "delete" on Apple platforms |
+| `GLFMKeyCodeTab` | `0x09` | |
+| `GLFMKeyCodeEnter` | `0x0D` | "return" on Apple platforms |
+| `GLFMKeyCodeEscape` | `0x1B` | |
+| `GLFMKeyCodeDelete` | `0x7F` | "forward delete" on Apple platforms |
+| `GLFMKeyCodeInsert` | `0x90` | |
+
+### Navigation keys
+
+| Key code | Value |
+|---|---|
+| `GLFMKeyCodePageUp` | `0x91` |
+| `GLFMKeyCodePageDown` | `0x92` |
+| `GLFMKeyCodeEnd` | `0x93` |
+| `GLFMKeyCodeHome` | `0x94` |
+| `GLFMKeyCodeArrowLeft` | `0x95` |
+| `GLFMKeyCodeArrowUp` | `0x96` |
+| `GLFMKeyCodeArrowRight` | `0x97` |
+| `GLFMKeyCodeArrowDown` | `0x98` |
+
+### Modifier keys
+
+| Key code | Value | Notes |
+|---|---|---|
+| `GLFMKeyCodeCapsLock` | `0x80` | |
+| `GLFMKeyCodeShiftLeft` | `0x81` | |
+| `GLFMKeyCodeShiftRight` | `0x82` | |
+| `GLFMKeyCodeControlLeft` | `0x83` | |
+| `GLFMKeyCodeControlRight` | `0x84` | |
+| `GLFMKeyCodeAltLeft` | `0x85` | Option key on Apple platforms |
+| `GLFMKeyCodeAltRight` | `0x86` | Option key on Apple platforms |
+| `GLFMKeyCodeMetaLeft` | `0x87` | Command key on Apple platforms |
+| `GLFMKeyCodeMetaRight` | `0x88` | Command key on Apple platforms |
+| `GLFMKeyCodeMenu` | `0x89` | Context menu key |
+
+### System keys
+
+| Key code | Value | Notes |
+|---|---|---|
+| `GLFMKeyCodePower` | `0x99` | |
+| `GLFMKeyCodeFunction` | `0x9A` | Fn key on Apple platforms |
+| `GLFMKeyCodePrintScreen` | `0x9B` | Print Screen / Sys Rq |
+| `GLFMKeyCodeScrollLock` | `0x9C` | |
+| `GLFMKeyCodePause` | `0x9D` | Pause/Break |
+
+### Numpad keys
+
+| Key code | Value |
+|---|---|
+| `GLFMKeyCodeNumLock` | `0xA0` |
+| `GLFMKeyCodeNumpadDecimal` | `0xA1` |
+| `GLFMKeyCodeNumpadMultiply` | `0xA2` |
+| `GLFMKeyCodeNumpadAdd` | `0xA3` |
+| `GLFMKeyCodeNumpadDivide` | `0xA4` |
+| `GLFMKeyCodeNumpadEnter` | `0xA5` |
+| `GLFMKeyCodeNumpadSubtract` | `0xA6` |
+| `GLFMKeyCodeNumpadEqual` | `0xA7` |
+| `GLFMKeyCodeNumpad0`–`GLFMKeyCodeNumpad9` | `0xB0`–`0xB9` |
+
+### Function keys
+
+`GLFMKeyCodeF1` through `GLFMKeyCodeF24` are available, with values `0xC1`–`0xDE`.
+
+### Media and platform keys
+
+| Key code | Value | Notes |
+|---|---|---|
+| `GLFMKeyCodeNavigationBack` | `0xE0` | Back button on Android; menu/back on tvOS remote |
+| `GLFMKeyCodeMediaSelect` | `0xE1` | Select button on tvOS remote |
+| `GLFMKeyCodeMediaPlayPause` | `0xE2` | Play/pause button on tvOS remote |
+
+## Character input
+
+### `GLFMCharFunc`
+
+```c
+typedef void (*GLFMCharFunc)(GLFMDisplay *display, const char *string,
+                              int modifiers);
+```
+
+Callback invoked when a character input event occurs. Fires after `GLFMKeyFunc` for each key press. Prefer this callback over `GLFMKeyFunc` when building text input fields, because it handles keyboard layout, dead keys, and composed characters automatically.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="string" type="const char *" required>
+  A NULL-terminated UTF-8 string representing the typed character or characters. Valid only during the callback — copy it if you need it afterward. Never `NULL`.
+</ParamField>
+
+<ParamField path="modifiers" type="int" required>
+  Deprecated. Always `0`.
+</ParamField>
+
+### `glfmSetCharFunc()`
+
+```c
+GLFMCharFunc glfmSetCharFunc(GLFMDisplay *display, GLFMCharFunc charFunc);
+```
+
+Registers the character input callback. Returns the previously registered function.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="charFunc" type="GLFMCharFunc" required>
+  The callback to invoke on character input. Pass `NULL` to unregister.
+</ParamField>
+
+<Note>
+  The character callback does not fire for every key repeat in all situations. Android virtual keyboard does not send repeats (except for Backspace), iOS virtual keyboard does not send repeats, and tvOS physical keyboard does not send repeats.
+</Note>
+
+<Warning>
+  On Android, non-ASCII characters are not automatically delivered due to an NDK limitation. To receive them, override `dispatchKeyEvent` in your `Activity`. See the platform notes below.
+</Warning>
+
+## Virtual keyboard
+
+### `glfmHasVirtualKeyboard()`
+
+```c
+bool glfmHasVirtualKeyboard(const GLFMDisplay *display);
+```
+
+Returns `true` on iOS and Android, where an on-screen keyboard is available. Returns `false` on other platforms.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+### `glfmSetKeyboardVisible()`
+
+```c
+void glfmSetKeyboardVisible(GLFMDisplay *display, bool visible);
+```
+
+Requests the virtual keyboard to appear or disappear.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="visible" type="bool" required>
+  `true` to show the keyboard, `false` to hide it.
+</ParamField>
+
+<Note>
+  On iPad, if a hardware keyboard is attached, the virtual keyboard is not shown even when `true` is passed. This function does nothing on Emscripten and tvOS.
+</Note>
+
+### `glfmIsKeyboardVisible()`
+
+```c
+bool glfmIsKeyboardVisible(const GLFMDisplay *display);
+```
+
+Returns `true` if the virtual keyboard is currently visible. Always returns `false` on Emscripten and tvOS.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+### `GLFMKeyboardVisibilityChangedFunc`
+
+```c
+typedef void (*GLFMKeyboardVisibilityChangedFunc)(GLFMDisplay *display,
+                                                   bool visible,
+                                                   double x, double y,
+                                                   double width, double height);
+```
+
+Callback invoked when the virtual keyboard changes visibility or changes its on-screen bounds.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="visible" type="bool" required>
+  `true` if the keyboard is now visible.
+</ParamField>
+
+<ParamField path="x" type="double" required>
+  The x position of the keyboard frame, in pixels.
+</ParamField>
+
+<ParamField path="y" type="double" required>
+  The y position of the keyboard frame, in pixels.
+</ParamField>
+
+<ParamField path="width" type="double" required>
+  The width of the keyboard frame, in pixels.
+</ParamField>
+
+<ParamField path="height" type="double" required>
+  The height of the keyboard frame, in pixels.
+</ParamField>
+
+### `glfmSetKeyboardVisibilityChangedFunc()`
+
+```c
+GLFMKeyboardVisibilityChangedFunc
+glfmSetKeyboardVisibilityChangedFunc(GLFMDisplay *display,
+    GLFMKeyboardVisibilityChangedFunc visibilityChangedFunc);
+```
+
+Registers the keyboard visibility callback. Returns the previously registered function.
+
+<ParamField path="display" type="GLFMDisplay *" required>
+  The active display.
+</ParamField>
+
+<ParamField path="visibilityChangedFunc" type="GLFMKeyboardVisibilityChangedFunc" required>
+  The callback to invoke when keyboard visibility or bounds change. Pass `NULL` to unregister.
+</ParamField>
+
+## Platform notes
+
+<Tabs>
+  <Tab title="iOS / tvOS">
+    Key events require iOS 13.4 or tvOS 13.4 or later. On earlier OS versions, `GLFMKeyFunc` and `GLFMCharFunc` never fire.
+
+    No `GLFMKeyActionRepeated` events are generated.
+
+    On tvOS, when the user presses the back button (`GLFMKeyCodeNavigationBack`), return `false` from `GLFMKeyFunc` to allow the user to exit, or `true` if your app handled the navigation itself.
+  </Tab>
+  <Tab title="Android">
+    Show the virtual keyboard before expecting key or character events:
+
+    ```c
+    glfmSetKeyboardVisible(display, true);
+    ```
+
+    Non-ASCII characters require an `Activity` override to be delivered to GLFM. Add the following Java code to your `Activity`:
+
+    ```java
+    public class MyActivity extends NativeActivity {
+
+        // Send unicode keyboard input to GLFM (using keycode value Integer.MAX_VALUE)
+        @Override
+        public boolean dispatchKeyEvent(KeyEvent event) {
+            if (event.getKeyCode() == KeyEvent.KEYCODE_UNKNOWN
+                    && event.getCharacters() != null
+                    && getWindow() != null
+                    && Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT) {
+                String s = event.getCharacters();
+                for (int offset = 0; offset < s.length(); ) {
+                    int codepoint = s.codePointAt(offset);
+                    getWindow().injectInputEvent(new KeyEvent(
+                        event.getDownTime(), event.getEventTime(),
+                        KeyEvent.ACTION_DOWN, Integer.MAX_VALUE, 0,
+                        0, 0, codepoint));
+                    offset += Character.charCount(codepoint);
+                }
+                return true;
+            }
+            return super.dispatchKeyEvent(event);
+        }
+    }
+    ```
+
+    This intercepts unknown key codes and re-injects them with the Unicode codepoint as the keycode, which GLFM then delivers to `GLFMCharFunc`.
+
+    When the user presses the back button (`GLFMKeyCodeNavigationBack`), return `false` from `GLFMKeyFunc` to allow the system to exit the app.
+  </Tab>
+  <Tab title="Emscripten">
+    Physical keyboard events work without any additional setup. Virtual keyboard functions do nothing and `glfmIsKeyboardVisible` always returns `false`.
+  </Tab>
+</Tabs>
+
+## Example
+
+The following key handler from `touch.c` rotates a cube with the arrow keys and resets its orientation with Escape:
+
+```c
+static bool onKey(GLFMDisplay *display, GLFMKeyCode keyCode,
+                  GLFMKeyAction action, int modifiers) {
+    bool handled = false;
+    if (action == GLFMKeyActionPressed || action == GLFMKeyActionRepeated) {
+        TouchApp *app = glfmGetUserData(display);
+        switch (keyCode) {
+            case GLFMKeyCodeArrowLeft:
+                app->angleX -= 0.01f;
+                handled = true;
+                break;
+            case GLFMKeyCodeArrowRight:
+                app->angleX += 0.01f;
+                handled = true;
+                break;
+            case GLFMKeyCodeArrowUp:
+                app->angleY -= 0.01f;
+                handled = true;
+                break;
+            case GLFMKeyCodeArrowDown:
+                app->angleY += 0.01f;
+                handled = true;
+                break;
+            case GLFMKeyCodeEscape:
+                app->angleX = 0.0f;
+                app->angleY = 0.0f;
+                handled = true;
+                break;
+            default:
+                break;
+        }
+        app->needsRedraw |= handled;
+    }
+    return handled;
+}
+
+void glfmMain(GLFMDisplay *display) {
+    // ...
+    glfmSetKeyFunc(display, onKey);
+}
+```

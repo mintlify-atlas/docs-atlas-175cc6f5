@@ -1,0 +1,120 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "GLFM",
+  "projectDescription": "A C API for cross-platform mobile app development with OpenGL ES, providing display setup, touch/keyboard input, and platform lifecycle management for iOS, tvOS, Android, and WebGL.",
+  "theme": "luma",
+  "primaryColor": "#2E7D9E",
+  "lightColor": null,
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "getting-started/installation",
+              "getting-started/quickstart"
+            ]
+          },
+          {
+            "group": "Building",
+            "pages": [
+              "building/ios-tvos",
+              "building/android",
+              "building/emscripten"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/display-setup",
+              "guides/input-handling",
+              "guides/lifecycle",
+              "guides/sensors-haptics",
+              "guides/metal"
+            ]
+          },
+          {
+            "group": "Examples",
+            "pages": [
+              "examples/overview",
+              "examples/triangle",
+              "examples/touch-cube"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Core",
+            "pages": [
+              "api/entry-point",
+              "api/display",
+              "api/rendering"
+            ]
+          },
+          {
+            "group": "Input",
+            "pages": [
+              "api/touch-mouse",
+              "api/keyboard",
+              "api/sensors"
+            ]
+          },
+          {
+            "group": "Platform",
+            "pages": [
+              "api/enums",
+              "api/platform-specific"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "OpenGL ES 2, 3, 3.1, 3.2 and Metal display setup",
+    "Cross-platform: iOS, tvOS, Android, WebGL (Emscripten)",
+    "Touch, mouse, and keyboard input events",
+    "Hardware sensor support: accelerometer, magnetometer, gyroscope",
+    "Retina / high-DPI display support",
+    "Application lifecycle and focus events",
+    "OpenGL context loss handling",
+    "Virtual keyboard and clipboard support",
+    "Haptic feedback (iOS/Android)",
+    "Safe area / chrome insets support"
+  ],
+  "publicApiSurface": [
+    "glfmMain(GLFMDisplay *display)",
+    "glfmSetDisplayConfig()",
+    "glfmSetRenderFunc()",
+    "glfmSwapBuffers()",
+    "glfmGetDisplaySize()",
+    "glfmGetDisplayScale()",
+    "glfmGetRenderingAPI()",
+    "glfmSetTouchFunc()",
+    "glfmSetKeyFunc()",
+    "glfmSetCharFunc()",
+    "glfmSetMouseWheelFunc()",
+    "glfmSetSensorFunc()",
+    "glfmSetSurfaceCreatedFunc()",
+    "glfmSetSurfaceDestroyedFunc()",
+    "glfmSetSurfaceResizedFunc()",
+    "glfmSetAppFocusFunc()",
+    "glfmSetKeyboardVisible()",
+    "glfmSetMouseCursor()",
+    "glfmPerformHapticFeedback()",
+    "glfmSetClipboardText()",
+    "glfmRequestClipboardText()",
+    "glfmGetDisplayChromeInsets()",
+    "glfmSetDisplayChrome()",
+    "glfmGetMetalView()",
+    "glfmGetAndroidActivity()",
+    "glfmSetUserData() / glfmGetUserData()"
+  ]
+}

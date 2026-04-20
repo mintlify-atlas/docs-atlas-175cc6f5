@@ -1,0 +1,266 @@
+---
+title: "Display setup: rendering API, formats, and chrome"
+description: "Configure your rendering API, pixel formats, chrome insets, orientation, and swap behavior using glfmSetDisplayConfig and the display query functions."
+---
+
+Every GLFM application begins in `glfmMain()`. The first thing you do there is call `glfmSetDisplayConfig()` to declare what kind of surface you want. From that point forward, query functions let you read back the actual dimensions, scale factor, and safe-area insets, while setter functions control chrome visibility and screen orientation.
+
+## Calling `glfmSetDisplayConfig()`
+
+`glfmSetDisplayConfig()` must be called from `glfmMain()`. It describes the surface you want; GLFM will try to create the closest match the device supports.
+
+```c
+void glfmSetDisplayConfig(GLFMDisplay *display,
+                          GLFMRenderingAPI preferredAPI,
+                          GLFMColorFormat colorFormat,
+                          GLFMDepthFormat depthFormat,
+                          GLFMStencilFormat stencilFormat,
+                          GLFMMultisample multisample);
+```
+
+A typical OpenGL ES 2 setup with no depth or stencil:
+
+```c
+void glfmMain(GLFMDisplay *display) {
+    glfmSetDisplayConfig(display,
+                         GLFMRenderingAPIOpenGLES2,
+                         GLFMColorFormatRGBA8888,
+                         GLFMDepthFormatNone,
+                         GLFMStencilFormatNone,
+                         GLFMMultisampleNone);
+    glfmSetRenderFunc(display, onDraw);
+}
+```
+
+<ParamField path="preferredAPI" type="GLFMRenderingAPI" required>
+  The rendering API you want. GLFM falls back to the next available API if the
+  preferred one is unavailable (see [API fallback](#api-fallback) below).
+</ParamField>
+
+<ParamField path="colorFormat" type="GLFMColorFormat" required>
+  The color buffer format. Use `GLFMColorFormatRGBA8888` for maximum quality or
+  `GLFMColorFormatRGB565` to save memory on memory-constrained devices.
+</ParamField>
+
+<ParamField path="depthFormat" type="GLFMDepthFormat" required>
+  The depth buffer precision. Use `GLFMDepthFormatNone` when depth testing is not needed.
+</ParamField>
+
+<ParamField path="stencilFormat" type="GLFMStencilFormat" required>
+  The stencil buffer format. Use `GLFMStencilFormatNone` when stencil testing is not needed.
+</ParamField>
+
+<ParamField path="multisample" type="GLFMMultisample" required>
+  Multisampling level. `GLFMMultisample4X` enables 4× MSAA; `GLFMMultisampleNone` disables it.
+</ParamField>
+
+## Rendering API
+
+```c
+typedef enum {
+    GLFMRenderingAPIOpenGLES2,
+    GLFMRenderingAPIOpenGLES3,
+    GLFMRenderingAPIOpenGLES31,
+    GLFMRenderingAPIOpenGLES32,
+    GLFMRenderingAPIMetal,
+} GLFMRenderingAPI;
+```
+
+| Value | Description |
+|---|---|
+| `GLFMRenderingAPIOpenGLES2` | OpenGL ES 2.0 — supported on all platforms |
+| `GLFMRenderingAPIOpenGLES3` | OpenGL ES 3.0 — iOS, tvOS, Android, Emscripten |
+| `GLFMRenderingAPIOpenGLES31` | OpenGL ES 3.1 — Android only |
+| `GLFMRenderingAPIOpenGLES32` | OpenGL ES 3.2 — Android only |
+| `GLFMRenderingAPIMetal` | Metal — iOS and tvOS only (see the [Metal guide](/guides/metal)) |
+
+### API fallback
+
+If the device does not support the requested API, GLFM automatically falls back to the next available API (for example, OpenGL ES 2.0 when OpenGL ES 3.0 is unavailable). Call `glfmGetRenderingAPI()` inside your `GLFMSurfaceCreatedFunc` callback to find out which API was actually selected.
+
+```c
+static void onSurfaceCreated(GLFMDisplay *display, int width, int height) {
+    GLFMRenderingAPI api = glfmGetRenderingAPI(display);
+    // api is the API actually in use, which may differ from preferredAPI
+}
+```
+
+<Note>
+  `glfmGetRenderingAPI()` returns `GLFMRenderingAPIOpenGLES2` by default and is
+  not valid until the surface has been created.
+</Note>
+
+## Color format
+
+```c
+typedef enum {
+    GLFMColorFormatRGBA8888, // 32-bit: 8 bits per channel, with alpha
+    GLFMColorFormatRGB565,   // 16-bit: 5 red, 6 green, 5 blue, no alpha
+} GLFMColorFormat;
+```
+
+`GLFMColorFormatRGBA8888` is the standard choice. Use `GLFMColorFormatRGB565` only if you need to reduce memory bandwidth on low-end hardware and your app does not require an alpha channel in the color buffer.
+
+## Depth format
+
+```c
+typedef enum {
+    GLFMDepthFormatNone,  // No depth buffer
+    GLFMDepthFormat16,    // 16-bit integer depth
+    GLFMDepthFormat24,    // 24-bit integer depth
+    GLFMDepthFormat32,    // 32-bit float (Metal) or 24-bit (OpenGL ES)
+} GLFMDepthFormat;
+```
+
+<Note>
+  `GLFMDepthFormat32` maps to a 32-bit floating-point depth buffer in Metal and
+  to a 24-bit integer buffer in OpenGL ES.
+</Note>
+
+## Stencil format
+
+```c
+typedef enum {
+    GLFMStencilFormatNone,  // No stencil buffer
+    GLFMStencilFormat8,     // 8-bit stencil buffer
+} GLFMStencilFormat;
+```
+
+## Multisample
+
+```c
+typedef enum {
+    GLFMMultisampleNone,  // No multisampling
+    GLFMMultisample4X,    // 4× MSAA
+} GLFMMultisample;
+```
+
+## Querying display dimensions
+
+After the surface is created, you can query its size and pixel density at any time.
+
+```c
+void   glfmGetDisplaySize(const GLFMDisplay *display, int *width, int *height);
+double glfmGetDisplayScale(const GLFMDisplay *display);
+```
+
+Both `width` and `height` pointer arguments may be `NULL` if you only need one dimension.
+
+```c
+int width, height;
+glfmGetDisplaySize(display, &width, &height);
+glViewport(0, 0, width, height);
+
+double scale = glfmGetDisplayScale(display);
+// scale is 1.0 on standard displays, 2.0 on Retina/high-DPI
+```
+
+## Chrome and safe-area insets
+
+"Chrome" refers to system UI overlaid on your content — the status bar, home indicator, and navigation bar. GLFM exposes three values:
+
+| Function | Description |
+|---|---|
+| `glfmGetDisplayChrome()` | Returns the current `GLFMUserInterfaceChrome` value |
+| `glfmSetDisplayChrome()` | Sets the chrome visibility |
+| `glfmGetDisplayChromeInsets()` | Returns the inset sizes in pixels (AKA safe-area insets on iOS) |
+
+### Chrome enum
+
+```c
+typedef enum {
+    // Show navigation bar (and home indicator on iOS)
+    GLFMUserInterfaceChromeNavigation,
+    // Show navigation bar + status bar (default)
+    GLFMUserInterfaceChromeNavigationAndStatusBar,
+    // Hide all chrome (fullscreen / immersive mode)
+    GLFMUserInterfaceChromeNone,
+} GLFMUserInterfaceChrome;
+```
+
+Platform-specific behavior for `GLFMUserInterfaceChromeNone`:
+
+- **Android 2.3**: Fullscreen.
+- **Android 4.0–4.3**: Navigation bar dimmed.
+- **Android 4.4+**: Fullscreen immersive mode.
+- **iOS**: Home indicator dimmed.
+
+<Note>
+  On Emscripten, switching to fullscreen (`GLFMUserInterfaceChromeNone`) must be
+  triggered from inside a user-generated event handler such as a touch or key
+  callback.
+</Note>
+
+### Reading chrome insets
+
+Chrome insets tell you how many pixels on each edge are occupied by system UI so you can position content inside the safe area.
+
+```c
+double top, right, bottom, left;
+glfmGetDisplayChromeInsets(display, &top, &right, &bottom, &left);
+```
+
+Any pointer argument may be `NULL`. To react to inset changes at runtime, register a callback with `glfmSetDisplayChromeInsetsChangedFunc()` (covered in the [Lifecycle guide](/guides/lifecycle)).
+
+## Interface orientation
+
+### Setting supported orientations
+
+```c
+void glfmSetSupportedInterfaceOrientation(GLFMDisplay *display,
+                                          GLFMInterfaceOrientation supportedOrientations);
+```
+
+Pass one or more `GLFMInterfaceOrientation` flags, combined with the bitwise OR operator:
+
+```c
+typedef enum {
+    GLFMInterfaceOrientationPortrait           = (1 << 0),
+    GLFMInterfaceOrientationPortraitUpsideDown = (1 << 1),
+    GLFMInterfaceOrientationLandscapeLeft      = (1 << 2),
+    GLFMInterfaceOrientationLandscapeRight     = (1 << 3),
+    // Convenience composites:
+    GLFMInterfaceOrientationLandscape          = LandscapeLeft | LandscapeRight,
+    GLFMInterfaceOrientationAll                = Portrait | PortraitUpsideDown | LandscapeLeft | LandscapeRight,
+    GLFMInterfaceOrientationAllButUpsideDown   = Portrait | LandscapeLeft | LandscapeRight,
+} GLFMInterfaceOrientation;
+```
+
+Common patterns:
+
+```c
+// Portrait only
+glfmSetSupportedInterfaceOrientation(display, GLFMInterfaceOrientationPortrait);
+
+// Any landscape
+glfmSetSupportedInterfaceOrientation(display, GLFMInterfaceOrientationLandscape);
+
+// Any orientation except upside-down (common default)
+glfmSetSupportedInterfaceOrientation(display,
+                                     GLFMInterfaceOrientationAllButUpsideDown);
+```
+
+### Querying the current orientation
+
+```c
+GLFMInterfaceOrientation glfmGetInterfaceOrientation(const GLFMDisplay *display);
+```
+
+Returns one of `GLFMInterfaceOrientationPortrait`, `GLFMInterfaceOrientationPortraitUpsideDown`, `GLFMInterfaceOrientationLandscapeLeft`, `GLFMInterfaceOrientationLandscapeRight`, or `GLFMInterfaceOrientationUnknown`.
+
+## Swap behavior (Android only)
+
+On Android you can control whether the back buffer is preserved or destroyed after each swap. Set this before the surface is created, preferably at the very start of `glfmMain()`.
+
+```c
+typedef enum {
+    GLFMSwapBehaviorPlatformDefault,  // Let the driver decide
+    GLFMSwapBehaviorBufferDestroyed,  // Back buffer contents undefined after swap
+    GLFMSwapBehaviorBufferPreserved,  // Back buffer contents retained after swap
+} GLFMSwapBehavior;
+
+void glfmSetSwapBehavior(GLFMDisplay *display, GLFMSwapBehavior behavior);
+GLFMSwapBehavior glfmGetSwapBehavior(const GLFMDisplay *display);
+```
+
+`GLFMSwapBehaviorBufferPreserved` is useful for incremental rendering (for example, drawing on a canvas that persists between frames), but it may incur a performance penalty. Most apps should use `GLFMSwapBehaviorPlatformDefault`.

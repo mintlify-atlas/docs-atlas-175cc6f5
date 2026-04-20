@@ -1,0 +1,98 @@
+---
+title: "Build GLFM apps for iOS and tvOS in Xcode"
+description: "Generate an Xcode project from GLFM's CMakeLists.txt, select an example target, and run on an iOS or tvOS simulator or physical device."
+---
+
+GLFM uses CMake to generate an Xcode project that targets both iOS and tvOS. Once the project is generated, you open it in Xcode, pick a target, and run on a simulator or a connected device. GLFM supports iOS 9+ and tvOS 9+, with deployment targets set to iOS 11.0 and tvOS 11.0 in the CMake configuration (the minimums supported by Xcode 14).
+
+## Prerequisites
+
+- **Xcode** — installed from the Mac App Store or from [developer.apple.com](https://developer.apple.com/xcode/).
+- **CMake 3.18+** — install via Homebrew (`brew install cmake`) or download from [cmake.org](https://cmake.org/download/).
+
+## Build steps
+
+<Steps>
+  <Step title="Clone the GLFM repository">
+    Clone or download GLFM so you have the source tree locally:
+
+    ```bash
+    git clone https://github.com/brackeen/glfm.git
+    cd glfm
+    ```
+  </Step>
+
+  <Step title="Generate the Xcode project with CMake">
+    Run `cmake` with the Xcode generator. The `-B` flag sets the output directory for the generated project. Pass `-D GLFM_BUILD_EXAMPLES=ON` to include the bundled example targets:
+
+    ```bash
+    cmake -D GLFM_BUILD_EXAMPLES=ON -B build/apple -G Xcode
+    ```
+
+    This produces `build/apple/GLFM.xcodeproj`.
+  </Step>
+
+  <Step title="Open the project in Xcode">
+    ```bash
+    open build/apple/GLFM.xcodeproj
+    ```
+
+    You can also open the `.xcodeproj` file directly from Finder.
+  </Step>
+
+  <Step title="Select a target">
+    In Xcode's scheme selector (top toolbar), switch from the default `glfm` library target to one of the example app targets:
+
+    | Target | Description |
+    |--------|-------------|
+    | `glfm_touch` | Touch input demo |
+    | `glfm_triangle` | Basic OpenGL ES triangle |
+    | `glfm_heightmap` | 3D heightmap example |
+    | `glfm_typing` | Keyboard / text input demo |
+    | `glfm_compass` | Sensor / compass demo |
+    | `glfm_test_pattern` | Display test pattern |
+  </Step>
+
+  <Step title="Choose a simulator or device">
+    Next to the scheme selector, pick a destination:
+
+    - **Simulator** — choose any iOS or tvOS simulator listed. No provisioning profile is required.
+    - **Device** — connect an iPhone, iPad, or Apple TV over USB. You need a valid signing identity and provisioning profile configured in the target's "Signing & Capabilities" tab.
+  </Step>
+
+  <Step title="Run the app">
+    Press **Cmd + R** (or click the Run button) to build and launch the app.
+  </Step>
+</Steps>
+
+## Deployment targets
+
+The CMake configuration sets the following minimum deployment targets, which match the minimums supported by Xcode 14:
+
+| Platform | Deployment target |
+|----------|-------------------|
+| iOS      | 11.0              |
+| tvOS     | 11.0              |
+
+GLFM itself runs on iOS 9 and tvOS 9, so you can lower these values in `CMakeLists.txt` or in Xcode's project settings if you need to support older OS versions.
+
+## Metal support
+
+GLFM provides Metal support on iOS and tvOS in addition to OpenGL ES 2 and OpenGL ES 3. To request a Metal rendering context, pass `GLFMRenderingAPIMetal` to `glfmSetDisplayConfig` in your `glfmMain` function:
+
+```c
+glfmSetDisplayConfig(display,
+                     GLFMRenderingAPIMetal,
+                     GLFMColorFormatRGBA8888,
+                     GLFMDepthFormatNone,
+                     GLFMStencilFormatNone,
+                     GLFMMultisampleNone);
+```
+
+<Note>
+  Metal is available on iOS and tvOS only. It is not available on Android or WebGL (Emscripten).
+</Note>
+
+## Release builds and NDEBUG
+
+GLFM includes debug logging that is compiled out when `NDEBUG` is defined. Xcode does **not** define `NDEBUG` automatically for release builds, unlike Android Studio. To suppress debug output in Xcode release builds, add `NDEBUG` to the **Preprocessor Macros** build setting for the Release configuration.

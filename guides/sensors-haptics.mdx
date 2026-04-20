@@ -1,0 +1,186 @@
+---
+title: "Read sensors and trigger haptic feedback in GLFM"
+description: "Enable accelerometer, magnetometer, gyroscope, and rotation matrix sensors in GLFM apps, and trigger haptic feedback on supported iOS and Android devices."
+---
+
+GLFM provides access to four hardware sensors — accelerometer, magnetometer, gyroscope, and device rotation — on iOS and Android. Haptic feedback is available on iPhones running iOS 13 or later.
+
+<Note>
+  Sensors are not available on Emscripten (web). `glfmIsSensorAvailable()`
+  always returns `false` on that platform.
+</Note>
+
+## Sensor types
+
+```c
+typedef enum {
+    GLFMSensorAccelerometer,   // Linear acceleration in G's
+    GLFMSensorMagnetometer,    // Magnetic field in microteslas
+    GLFMSensorGyroscope,       // Rotation rate in radians/second
+    GLFMSensorRotationMatrix,  // 3x3 rotation matrix (X = North, Z = up)
+} GLFMSensor;
+```
+
+| Sensor | `GLFMSensorEvent` field | Units |
+|---|---|---|
+| `GLFMSensorAccelerometer` | `event.vector` (x, y, z) | G's |
+| `GLFMSensorMagnetometer` | `event.vector` (x, y, z) | Microteslas |
+| `GLFMSensorGyroscope` | `event.vector` (x, y, z) | Radians per second |
+| `GLFMSensorRotationMatrix` | `event.matrix` (m00–m22) | Unitless rotation matrix |
+
+## Sensor event structure
+
+```c
+typedef struct {
+    GLFMSensor sensor;
+    double timestamp;  // High-precision time (not wall-clock time)
+    union {
+        struct { double x, y, z; } vector;  // Accelerometer, magnetometer, gyroscope
+        struct {
+            double m00, m01, m02;
+            double m10, m11, m12;
+            double m20, m21, m22;
+        } matrix;  // Rotation matrix
+    };
+} GLFMSensorEvent;
+```
+
+Use `event.vector` for `GLFMSensorAccelerometer`, `GLFMSensorMagnetometer`, and `GLFMSensorGyroscope`. Use `event.matrix` for `GLFMSensorRotationMatrix`.
+
+For the rotation matrix, the X axis points North and the Z axis is vertical (up).
+
+## Checking availability
+
+Always check whether a sensor is available before enabling it:
+
+```c
+bool glfmIsSensorAvailable(const GLFMDisplay *display, GLFMSensor sensor);
+```
+
+```c
+if (glfmIsSensorAvailable(display, GLFMSensorAccelerometer)) {
+    glfmSetSensorFunc(display, GLFMSensorAccelerometer, onAccelerometer);
+}
+```
+
+## Enabling and disabling sensors
+
+```c
+GLFMSensorFunc glfmSetSensorFunc(GLFMDisplay *display,
+                                  GLFMSensor sensor,
+                                  GLFMSensorFunc sensorFunc);
+```
+
+```c
+typedef void (*GLFMSensorFunc)(GLFMDisplay *display, GLFMSensorEvent event);
+```
+
+- Each `GLFMSensor` type has its own callback slot; you can mix and match.
+- Pass a non-`NULL` function pointer to **enable** the sensor.
+- Pass `NULL` to **disable** the sensor and stop battery drain.
+- Sensors are automatically disabled when the app becomes inactive and re-enabled when it becomes active again.
+
+<Tip>
+  Disable sensors when they are not actively needed. Leaving an accelerometer or
+  gyroscope running continuously can significantly reduce battery life.
+</Tip>
+
+## Code example: rotation matrix compass
+
+The `compass.c` example in the GLFM repository uses the rotation matrix sensor to orient a 3D compass needle:
+
+```c
+static void onSensor(GLFMDisplay *display, GLFMSensorEvent event) {
+    if (event.sensor == GLFMSensorRotationMatrix) {
+        CompassApp *app = glfmGetUserData(display);
+        app->sensorDataReceived = true;
+
+        // Copy the 3x3 rotation matrix for use in the render callback
+        app->rotation.m00 = event.matrix.m00;
+        app->rotation.m01 = event.matrix.m01;
+        app->rotation.m02 = event.matrix.m02;
+        app->rotation.m10 = event.matrix.m10;
+        app->rotation.m11 = event.matrix.m11;
+        app->rotation.m12 = event.matrix.m12;
+        app->rotation.m20 = event.matrix.m20;
+        app->rotation.m21 = event.matrix.m21;
+        app->rotation.m22 = event.matrix.m22;
+    }
+}
+
+void glfmMain(GLFMDisplay *display) {
+    CompassApp *app = calloc(1, sizeof(CompassApp));
+    glfmSetDisplayConfig(display,
+                         GLFMRenderingAPIOpenGLES2,
+                         GLFMColorFormatRGBA8888,
+                         GLFMDepthFormatNone,
+                         GLFMStencilFormatNone,
+                         GLFMMultisampleNone);
+    glfmSetUserData(display, app);
+    glfmSetRenderFunc(display, onDraw);
+
+    if (glfmIsSensorAvailable(display, GLFMSensorRotationMatrix)) {
+        glfmSetSensorFunc(display, GLFMSensorRotationMatrix, onSensor);
+    } else {
+        // Sensor not available — fall back to a fixed orientation
+        app->sensorDataReceived = true;
+        // Set identity-like rotation pointing North up...
+    }
+}
+```
+
+## Haptic feedback
+
+Haptic feedback lets your app produce short tactile pulses on supported devices.
+
+```c
+bool glfmIsHapticFeedbackSupported(const GLFMDisplay *display);
+void glfmPerformHapticFeedback(GLFMDisplay *display, GLFMHapticFeedbackStyle style);
+```
+
+### Feedback styles
+
+```c
+typedef enum {
+    GLFMHapticFeedbackLight,   // Subtle tap
+    GLFMHapticFeedbackMedium,  // Standard tap
+    GLFMHapticFeedbackHeavy,   // Strong tap
+} GLFMHapticFeedbackStyle;
+```
+
+### Example
+
+```c
+static bool onTouch(GLFMDisplay *display, int touch,
+                    GLFMTouchPhase phase, double x, double y) {
+    if (phase == GLFMTouchPhaseBegan) {
+        if (glfmIsHapticFeedbackSupported(display)) {
+            glfmPerformHapticFeedback(display, GLFMHapticFeedbackMedium);
+        }
+    }
+    return true;
+}
+```
+
+### Platform support
+
+<AccordionGroup>
+  <Accordion title="iOS">
+    Haptic feedback is supported on **iPhone 7 or newer** running **iOS 13 or
+    newer**. `glfmIsHapticFeedbackSupported()` returns `false` on older devices
+    or OS versions.
+  </Accordion>
+  <Accordion title="Android">
+    Haptic feedback is available on Android devices that have a vibrator.
+    `glfmIsHapticFeedbackSupported()` returns `true` when the hardware supports
+    it.
+  </Accordion>
+  <Accordion title="tvOS">
+    Haptic feedback is not available on tvOS. `glfmIsHapticFeedbackSupported()`
+    returns `false` and `glfmPerformHapticFeedback()` does nothing.
+  </Accordion>
+  <Accordion title="Web (Emscripten)">
+    `glfmIsHapticFeedbackSupported()` always returns `false` and
+    `glfmPerformHapticFeedback()` does nothing.
+  </Accordion>
+</AccordionGroup>

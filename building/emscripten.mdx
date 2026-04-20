@@ -1,0 +1,102 @@
+---
+title: "Build GLFM for WebGL using Emscripten and CMake"
+description: "Compile a GLFM C app to WebAssembly and WebGL 1.0 with emcmake and CMake, then serve the output locally with emrun for browser testing."
+---
+
+GLFM targets **WebGL 1.0** via [Emscripten](https://github.com/emscripten-core/emscripten), compiling your C code to WebAssembly. The build uses `emcmake` to configure the Emscripten toolchain for CMake, producing `.html`, `.js`, and `.wasm` output files that you can serve locally with `emrun`.
+
+## Prerequisites
+
+- **Emscripten SDK** — installed and activated. Follow the [Emscripten getting started guide](https://emscripten.org/docs/getting_started/downloads.html) to install `emsdk` and run `emsdk activate` for your desired version.
+- **CMake 3.18+** — available on your `PATH`.
+
+Verify your setup before building:
+
+```bash
+emcc --version
+cmake --version
+```
+
+## Build steps
+
+<Steps>
+  <Step title="Clone the GLFM repository">
+    ```bash
+    git clone https://github.com/brackeen/glfm.git
+    cd glfm
+    ```
+  </Step>
+
+  <Step title="Configure and build with emcmake">
+    Use `emcmake` to set the Emscripten environment variables for CMake, then build in a single command:
+
+    ```bash
+    emcmake cmake -D GLFM_BUILD_EXAMPLES=ON -B build/emscripten && cmake --build build/emscripten
+    ```
+
+    - `emcmake` wraps `cmake` to inject the Emscripten compiler and sysroot.
+    - `-D GLFM_BUILD_EXAMPLES=ON` enables the bundled example targets.
+    - `-B build/emscripten` puts all generated files in the `build/emscripten` directory.
+    - The second `cmake --build` command compiles everything to `.html` / `.wasm` output.
+  </Step>
+
+  <Step title="Serve the examples locally">
+    Use `emrun` to launch a local HTTP server and open the examples directory in your browser:
+
+    ```bash
+    emrun build/emscripten/examples
+    ```
+
+    This opens an index page listing all available examples.
+  </Step>
+
+  <Step title="Run a specific example">
+    To open a single example directly, pass the `.html` file to `emrun`:
+
+    ```bash
+    emrun build/emscripten/examples/glfm_touch.html
+    ```
+
+    Available examples include `glfm_triangle.html`, `glfm_touch.html`, `glfm_heightmap.html`, `glfm_typing.html`, `glfm_compass.html`, and `glfm_test_pattern.html`.
+  </Step>
+</Steps>
+
+## Emscripten-specific behavior
+
+### glfmSwapBuffers does nothing
+
+On Emscripten, `glfmSwapBuffers` is a no-op — the buffer swap is handled implicitly by the browser's requestAnimationFrame loop. You should still call it in your render function for cross-platform compatibility, but it has no effect on the web.
+
+```c
+static void onDraw(GLFMDisplay *display) {
+    // ... render ...
+    glfmSwapBuffers(display); // no-op on Emscripten; required on other platforms
+}
+```
+
+### Fullscreen requires a user-generated event
+
+Web browsers require that requests to enter fullscreen originate from a user interaction (such as a touch or click). When calling `glfmSetDisplayChrome(display, GLFMUserInterfaceChromeNone)` to enter fullscreen, you must do so from within a GLFM input event callback — not from `glfmMain` or a timer.
+
+```c
+static bool onTouch(GLFMDisplay *display, int touch,
+                    GLFMTouchPhase phase, double x, double y) {
+    if (phase == GLFMTouchPhaseBegan) {
+        // Must be called from a user event handler on Emscripten
+        glfmSetDisplayChrome(display, GLFMUserInterfaceChromeNone);
+    }
+    return true;
+}
+```
+
+<Warning>
+  Calling `glfmSetDisplayChrome` with `GLFMUserInterfaceChromeNone` outside of a user-generated event handler will silently fail in most browsers due to the browser's fullscreen security policy.
+</Warning>
+
+### WebGL 1.0 (OpenGL ES 2)
+
+Emscripten maps GLFM's OpenGL ES context to **WebGL 1.0**, which corresponds to OpenGL ES 2. OpenGL ES 3 (WebGL 2) may work depending on the browser, but GLFM's Emscripten target is designed around WebGL 1.0. OpenGL ES 3.1 and 3.2 are not available on the web.
+
+<Info>
+  Mouse wheel events and mouse hover events are supported on the Emscripten target. Device orientation, haptic feedback, and the virtual keyboard are not available on the web platform.
+</Info>

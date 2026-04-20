@@ -1,0 +1,292 @@
+---
+title: "Quickstart: build your first GLFM app in C"
+description: "Write your first GLFM app from scratch: configure the display, compile OpenGL ES shaders, and render a triangle in under 100 lines of C on any platform."
+---
+
+This guide walks through the complete triangle example included in the GLFM repository. By the end you will have a working GLFM app that clears the screen and draws a single white triangle using OpenGL ES 2.0 shaders. The same code runs unmodified on iOS, tvOS, Android, and WebGL.
+
+<Steps>
+  <Step title="Include the header">
+    GLFM has a single public header. Include it at the top of your source file. It automatically includes the correct OpenGL ES headers for the current platform.
+
+    ```c
+    #include "glfm.h"
+    ```
+
+    By default, `glfm.h` includes the OpenGL ES 2.0 headers. To request ES 3.0 headers, define `GLFM_INCLUDE_ES3` before including the header.
+  </Step>
+
+  <Step title="Declare your state and callbacks">
+    GLFM is event-driven. Declare your OpenGL objects as file-scope statics and forward-declare the callback functions you will register in `glfmMain()`.
+
+    ```c
+    static GLint program = 0;
+    static GLuint vertexBuffer = 0;
+    static GLuint vertexArray = 0;
+
+    static void onDraw(GLFMDisplay *display);
+    static void onSurfaceDestroyed(GLFMDisplay *display);
+    ```
+  </Step>
+
+  <Step title="Implement glfmMain()">
+    `glfmMain()` is your app's entry point. Call `glfmSetDisplayConfig()` to request a rendering API and buffer formats, then register your render callback with `glfmSetRenderFunc()`.
+
+    ```c
+    void glfmMain(GLFMDisplay *display) {
+        glfmSetDisplayConfig(display,
+                             GLFMRenderingAPIOpenGLES2,
+                             GLFMColorFormatRGBA8888,
+                             GLFMDepthFormatNone,
+                             GLFMStencilFormatNone,
+                             GLFMMultisampleNone);
+        glfmSetRenderFunc(display, onDraw);
+        glfmSetSurfaceDestroyedFunc(display, onSurfaceDestroyed);
+    }
+    ```
+
+    `glfmSetDisplayConfig()` parameters:
+
+    | Parameter | Value used | Meaning |
+    |---|---|---|
+    | `preferredAPI` | `GLFMRenderingAPIOpenGLES2` | Request OpenGL ES 2.0 |
+    | `colorFormat` | `GLFMColorFormatRGBA8888` | 32-bit RGBA color buffer |
+    | `depthFormat` | `GLFMDepthFormatNone` | No depth buffer (2D rendering) |
+    | `stencilFormat` | `GLFMStencilFormatNone` | No stencil buffer |
+    | `multisample` | `GLFMMultisampleNone` | No multisampling |
+
+    <Note>
+    If the requested rendering API is unavailable on the device, GLFM automatically falls back to the next available API. Call `glfmGetRenderingAPI()` inside your `GLFMSurfaceCreatedFunc` to check which API was actually selected.
+    </Note>
+  </Step>
+
+  <Step title="Handle surface destruction">
+    The OpenGL surface can be destroyed at any time (for example, when the app goes to the background on Android). When this happens all existing GL resources become invalid. Reset your handles to zero so they are recreated on the next draw.
+
+    ```c
+    static void onSurfaceDestroyed(GLFMDisplay *display) {
+        // All existing GL resources are invalid after surface destruction.
+        program = 0;
+        vertexBuffer = 0;
+        vertexArray = 0;
+    }
+    ```
+  </Step>
+
+  <Step title="Write a helper to compile shaders">
+    A small utility function keeps the draw callback readable:
+
+    ```c
+    static GLuint compileShader(GLenum type, const GLchar *src, GLint length) {
+        GLuint shader = glCreateShader(type);
+        glShaderSource(shader, 1, &src, &length);
+        glCompileShader(shader);
+        return shader;
+    }
+    ```
+  </Step>
+
+  <Step title="Implement the render callback">
+    `onDraw()` is called once per frame (typically at 60 fps). Create GL resources lazily on the first call (after surface destruction they need to be recreated anyway), then clear and draw. Call `glfmSwapBuffers()` at the end to present the frame.
+
+    ```c
+    static void onDraw(GLFMDisplay *display) {
+        // Create shaders and program on first call or after surface loss.
+        if (program == 0) {
+            const GLchar vertSrc[] =
+                "#version 100\n"
+                "attribute highp vec4 position;\n"
+                "void main() {\n"
+                "    gl_Position = position;\n"
+                "}";
+
+            const GLchar fragSrc[] =
+                "#version 100\n"
+                "void main() {\n"
+                "    gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);\n"
+                "}";
+
+            program = glCreateProgram();
+            GLuint vert = compileShader(GL_VERTEX_SHADER, vertSrc, sizeof(vertSrc) - 1);
+            GLuint frag = compileShader(GL_FRAGMENT_SHADER, fragSrc, sizeof(fragSrc) - 1);
+            glAttachShader(program, vert);
+            glAttachShader(program, frag);
+            glLinkProgram(program);
+            glDeleteShader(vert);
+            glDeleteShader(frag);
+        }
+
+        // Upload vertex data on first call or after surface loss.
+        if (vertexBuffer == 0) {
+            const GLfloat vertices[] = {
+                 0.0f,  0.5f, 0.0f,
+                -0.5f, -0.5f, 0.0f,
+                 0.5f, -0.5f, 0.0f,
+            };
+            glGenBuffers(1, &vertexBuffer);
+            glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+            glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+        }
+
+        // Set the viewport to the current display size.
+        int width, height;
+        glfmGetDisplaySize(display, &width, &height);
+        glViewport(0, 0, width, height);
+
+        // Clear the screen.
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        // Optionally bind a vertex array object if ES 3.0+ is available.
+    #if defined(GL_VERSION_3_0) && GL_VERSION_3_0
+        if (vertexArray == 0) {
+            glGenVertexArrays(1, &vertexArray);
+        }
+        glBindVertexArray(vertexArray);
+    #endif
+
+        // Draw.
+        glUseProgram(program);
+        glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+
+        // Present the frame.
+        glfmSwapBuffers(display);
+    }
+    ```
+
+    Key points about `glfmSwapBuffers()`:
+    - Call it only when you rendered content. If your render callback returns early without drawing, skip the swap.
+    - On Emscripten it is a no-op — buffer swapping happens automatically whenever any OpenGL call is made.
+    - On Apple platforms with Metal it is also a no-op; Metal drawable presentation is the app's responsibility.
+  </Step>
+</Steps>
+
+## Complete source
+
+Here is the full file for reference:
+
+```c triangle.c
+#include "glfm.h"
+
+static GLint program = 0;
+static GLuint vertexBuffer = 0;
+static GLuint vertexArray = 0;
+
+static void onDraw(GLFMDisplay *display);
+static void onSurfaceDestroyed(GLFMDisplay *display);
+
+void glfmMain(GLFMDisplay *display) {
+    glfmSetDisplayConfig(display,
+                         GLFMRenderingAPIOpenGLES2,
+                         GLFMColorFormatRGBA8888,
+                         GLFMDepthFormatNone,
+                         GLFMStencilFormatNone,
+                         GLFMMultisampleNone);
+    glfmSetRenderFunc(display, onDraw);
+    glfmSetSurfaceDestroyedFunc(display, onSurfaceDestroyed);
+}
+
+static void onSurfaceDestroyed(GLFMDisplay *display) {
+    program = 0;
+    vertexBuffer = 0;
+    vertexArray = 0;
+}
+
+static GLuint compileShader(GLenum type, const GLchar *src, GLint length) {
+    GLuint shader = glCreateShader(type);
+    glShaderSource(shader, 1, &src, &length);
+    glCompileShader(shader);
+    return shader;
+}
+
+static void onDraw(GLFMDisplay *display) {
+    if (program == 0) {
+        const GLchar vertSrc[] =
+            "#version 100\n"
+            "attribute highp vec4 position;\n"
+            "void main() {\n"
+            "    gl_Position = position;\n"
+            "}";
+
+        const GLchar fragSrc[] =
+            "#version 100\n"
+            "void main() {\n"
+            "    gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);\n"
+            "}";
+
+        program = glCreateProgram();
+        GLuint vert = compileShader(GL_VERTEX_SHADER, vertSrc, sizeof(vertSrc) - 1);
+        GLuint frag = compileShader(GL_FRAGMENT_SHADER, fragSrc, sizeof(fragSrc) - 1);
+        glAttachShader(program, vert);
+        glAttachShader(program, frag);
+        glLinkProgram(program);
+        glDeleteShader(vert);
+        glDeleteShader(frag);
+    }
+    if (vertexBuffer == 0) {
+        const GLfloat vertices[] = {
+             0.0f,  0.5f, 0.0f,
+            -0.5f, -0.5f, 0.0f,
+             0.5f, -0.5f, 0.0f,
+        };
+        glGenBuffers(1, &vertexBuffer);
+        glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    }
+
+    int width, height;
+    glfmGetDisplaySize(display, &width, &height);
+    glViewport(0, 0, width, height);
+    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+
+#if defined(GL_VERSION_3_0) && GL_VERSION_3_0
+    if (vertexArray == 0) {
+        glGenVertexArrays(1, &vertexArray);
+    }
+    glBindVertexArray(vertexArray);
+#endif
+
+    glUseProgram(program);
+    glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    glfmSwapBuffers(display);
+}
+```
+
+## Next steps
+
+<Tabs>
+  <Tab title="iOS / tvOS">
+    Build the Xcode project with CMake and run on the simulator:
+
+    ```shell
+    cmake -D GLFM_BUILD_EXAMPLES=ON -B build/apple -G Xcode
+    open build/apple/GLFM.xcodeproj
+    ```
+
+    Select the `glfm_triangle` scheme and run on the iOS Simulator or a connected device. See the [iOS and tvOS building guide](/building/ios-tvos) for signing and deployment details.
+  </Tab>
+  <Tab title="Android">
+    Add your source to an Android Studio project with CMake external build support. See the [Android building guide](/building/android) for the full `AndroidManifest.xml` and Gradle configuration.
+  </Tab>
+  <Tab title="Emscripten">
+    Build and run in the browser:
+
+    ```shell
+    emcmake cmake -D GLFM_BUILD_EXAMPLES=ON -B build/emscripten
+    cmake --build build/emscripten
+    emrun build/emscripten/examples/glfm_triangle.html
+    ```
+
+    See the [Emscripten building guide](/building/emscripten) for linker flags and shell file options.
+  </Tab>
+</Tabs>
+
+Once your triangle is running, explore the [display setup guide](/guides/display-setup) to request a different OpenGL ES version or configure depth and stencil buffers, or the [input handling guide](/guides/input-handling) to add touch and keyboard callbacks.

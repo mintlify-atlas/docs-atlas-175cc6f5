@@ -1,0 +1,356 @@
+---
+title: "Handle touch, keyboard, and mouse input in GLFM"
+description: "Register callbacks for touch and mouse events, key codes and character input, mouse wheel, virtual keyboard visibility, and clipboard across all GLFM platforms."
+---
+
+GLFM provides a unified input model that works across iOS, tvOS, Android, and the web. You register callback functions for each input type. All callbacks are invoked on the main thread.
+
+## Touch and mouse events
+
+Register a single callback that handles both touch and mouse button events:
+
+```c
+GLFMTouchFunc glfmSetTouchFunc(GLFMDisplay *display, GLFMTouchFunc touchFunc);
+```
+
+The callback signature:
+
+```c
+typedef bool (*GLFMTouchFunc)(GLFMDisplay *display,
+                              int touch,
+                              GLFMTouchPhase phase,
+                              double x,
+                              double y);
+```
+
+- `touch` — zero for the primary touch or primary mouse button; 1+ for additional fingers or secondary mouse buttons.
+- `phase` — one of the `GLFMTouchPhase` values below.
+- `x`, `y` — position in pixels.
+- Return `true` if the event was handled; `false` to let the platform process it further.
+
+### Touch phases
+
+```c
+typedef enum {
+    GLFMTouchPhaseHover,     // Pointer hovering (not touching)
+    GLFMTouchPhaseBegan,     // First contact
+    GLFMTouchPhaseMoved,     // Moved while in contact
+    GLFMTouchPhaseEnded,     // Lifted
+    GLFMTouchPhaseCancelled, // System cancelled (e.g. incoming call)
+} GLFMTouchPhase;
+```
+
+### Example from `touch.c`
+
+The touch cube example from the GLFM repository rotates a 3D cube by dragging:
+
+```c
+static bool onTouch(GLFMDisplay *display, int touch, GLFMTouchPhase phase,
+                    double x, double y) {
+    if (phase == GLFMTouchPhaseHover) {
+        return false; // Ignore hover events
+    }
+    TouchApp *app = glfmGetUserData(display);
+    app->needsRedraw = true;
+    if (phase != GLFMTouchPhaseBegan) {
+        int width, height;
+        glfmGetDisplaySize(display, &width, &height);
+        app->angleX += (x - app->lastTouchX) / height;
+        app->angleY += (y - app->lastTouchY) / height;
+    }
+    app->lastTouchX = x;
+    app->lastTouchY = y;
+    return true;
+}
+
+void glfmMain(GLFMDisplay *display) {
+    // ...
+    glfmSetTouchFunc(display, onTouch);
+}
+```
+
+### Multitouch
+
+Multitouch is disabled by default. Enable it before any touch events arrive:
+
+```c
+glfmSetMultitouchEnabled(display, true);
+```
+
+When multitouch is enabled, each finger gets its own `touch` index (0, 1, 2, …). You can check at runtime whether the display has touch capabilities:
+
+```c
+bool hasTouch = glfmHasTouch(display);
+```
+
+<Note>
+  On tvOS, `glfmSetMultitouchEnabled()` does nothing and
+  `glfmGetMultitouchEnabled()` always returns `false`.
+</Note>
+
+## Keyboard events
+
+There are two complementary keyboard callbacks: one for raw key codes and one for character input.
+
+### Key code events
+
+```c
+GLFMKeyFunc glfmSetKeyFunc(GLFMDisplay *display, GLFMKeyFunc keyFunc);
+```
+
+```c
+typedef bool (*GLFMKeyFunc)(GLFMDisplay *display,
+                            GLFMKeyCode keyCode,
+                            GLFMKeyAction action,
+                            int modifiers);
+```
+
+#### `GLFMKeyAction`
+
+```c
+typedef enum {
+    GLFMKeyActionPressed,   // Key was pressed
+    GLFMKeyActionRepeated,  // Key is held and auto-repeating
+    GLFMKeyActionReleased,  // Key was released
+} GLFMKeyAction;
+```
+
+#### `GLFMKeyModifier` flags
+
+```c
+typedef enum {
+    GLFMKeyModifierShift    = (1 << 0), // Shift key
+    GLFMKeyModifierControl  = (1 << 1), // Ctrl key
+    GLFMKeyModifierAlt      = (1 << 2), // Alt / Option key
+    GLFMKeyModifierMeta     = (1 << 3), // Meta / Command key
+    GLFMKeyModifierFunction = (1 << 4), // Fn key (Apple platforms)
+} GLFMKeyModifier;
+```
+
+Test for modifiers with bitwise AND:
+
+```c
+if (modifiers & GLFMKeyModifierControl) { /* Ctrl is held */ }
+```
+
+#### Example from `touch.c`
+
+```c
+static bool onKey(GLFMDisplay *display, GLFMKeyCode keyCode,
+                  GLFMKeyAction action, int modifiers) {
+    bool handled = false;
+    if (action == GLFMKeyActionPressed || action == GLFMKeyActionRepeated) {
+        TouchApp *app = glfmGetUserData(display);
+        switch (keyCode) {
+            case GLFMKeyCodeArrowLeft:  app->angleX -= 0.01f; handled = true; break;
+            case GLFMKeyCodeArrowRight: app->angleX += 0.01f; handled = true; break;
+            case GLFMKeyCodeArrowUp:    app->angleY -= 0.01f; handled = true; break;
+            case GLFMKeyCodeArrowDown:  app->angleY += 0.01f; handled = true; break;
+            case GLFMKeyCodeEscape:
+                app->angleX = 0.0f;
+                app->angleY = 0.0f;
+                handled = true;
+                break;
+            default: break;
+        }
+        app->needsRedraw |= handled;
+    }
+    return handled;
+}
+```
+
+<Tabs>
+  <Tab title="iOS / tvOS">
+    Key events require **iOS 13.4 or tvOS 13.4** or newer. Repeated events
+    (`GLFMKeyActionRepeated`) are **not** sent on iOS or tvOS.
+  </Tab>
+  <Tab title="Android">
+    Repeated events (`GLFMKeyActionRepeated`) are sent on Android. Use
+    `glfmSetKeyboardVisible()` to show the virtual keyboard before expecting
+    character input.
+  </Tab>
+  <Tab title="Web (Emscripten)">
+    Both repeated and non-repeated key events are sent. The browser may consume
+    some key combinations before they reach your callback.
+  </Tab>
+</Tabs>
+
+<Warning>
+  On **Android and tvOS**, when the user presses the back button
+  (`GLFMKeyCodeNavigationBack`), your `GLFMKeyFunc` **must return `false`** to
+  allow the OS to exit the app. Return `true` only if your app handled the back
+  navigation itself (for example, closing an in-app menu).
+</Warning>
+
+### Character input events
+
+For text input (virtual keyboard typing, physical keyboard characters), register a char callback:
+
+```c
+GLFMCharFunc glfmSetCharFunc(GLFMDisplay *display, GLFMCharFunc charFunc);
+```
+
+```c
+typedef void (*GLFMCharFunc)(GLFMDisplay *display,
+                             const char *string,
+                             int modifiers);
+```
+
+- `string` — a null-terminated UTF-8 string. It is valid only for the duration of the callback; copy it if you need it later.
+- `modifiers` — deprecated; always 0.
+
+The char callback fires after the key callback for the same key press.
+
+<Note>
+  On Android, non-ASCII characters from the virtual keyboard require extra Java
+  code in your `Activity` to dispatch them correctly. Refer to the comment in
+  `glfm.h` near `glfmSetCharFunc` for the required `dispatchKeyEvent` override.
+</Note>
+
+## Mouse wheel events
+
+Mouse wheel events are only fired on **Emscripten** (web):
+
+```c
+GLFMMouseWheelFunc glfmSetMouseWheelFunc(GLFMDisplay *display,
+                                         GLFMMouseWheelFunc mouseWheelFunc);
+```
+
+```c
+typedef bool (*GLFMMouseWheelFunc)(GLFMDisplay *display,
+                                   double x, double y,
+                                   GLFMMouseWheelDeltaType deltaType,
+                                   double deltaX, double deltaY, double deltaZ);
+```
+
+#### `GLFMMouseWheelDeltaType`
+
+```c
+typedef enum {
+    GLFMMouseWheelDeltaPixel,  // Delta in pixels
+    GLFMMouseWheelDeltaLine,   // Delta in lines
+    GLFMMouseWheelDeltaPage,   // Delta in pages
+} GLFMMouseWheelDeltaType;
+```
+
+The `touch.c` example normalizes non-pixel deltas before applying them:
+
+```c
+static bool onScroll(GLFMDisplay *display, double x, double y,
+                     GLFMMouseWheelDeltaType deltaType,
+                     double deltaX, double deltaY, double deltaZ) {
+    TouchApp *app = glfmGetUserData(display);
+    int width, height;
+    glfmGetDisplaySize(display, &width, &height);
+    if (deltaType != GLFMMouseWheelDeltaPixel) {
+        deltaX *= 20;
+        deltaY *= 20;
+    }
+    app->angleX -= deltaX / height;
+    app->angleY -= deltaY / height;
+    app->needsRedraw = true;
+    return true;
+}
+```
+
+## Mouse cursor style
+
+On platforms with a mouse cursor (Emscripten, and iPad with iOS 13.4+):
+
+```c
+void glfmSetMouseCursor(GLFMDisplay *display, GLFMMouseCursor mouseCursor);
+```
+
+```c
+typedef enum {
+    GLFMMouseCursorAuto,         // Use platform default for context
+    GLFMMouseCursorNone,         // Hide the cursor
+    GLFMMouseCursorDefault,      // Standard arrow cursor
+    GLFMMouseCursorPointer,      // Hand/pointer (for clickable items)
+    GLFMMouseCursorCrosshair,    // Crosshair
+    GLFMMouseCursorText,         // I-beam (for text)
+    GLFMMouseCursorVerticalText, // Vertical I-beam
+} GLFMMouseCursor;
+```
+
+## Virtual keyboard
+
+On iOS and Android, you can show or hide the system on-screen keyboard:
+
+```c
+bool glfmHasVirtualKeyboard(const GLFMDisplay *display);
+void glfmSetKeyboardVisible(GLFMDisplay *display, bool visible);
+bool glfmIsKeyboardVisible(const GLFMDisplay *display);
+```
+
+Register a callback to respond to keyboard appearance and layout changes (for example, to resize your content area):
+
+```c
+GLFMKeyboardVisibilityChangedFunc
+glfmSetKeyboardVisibilityChangedFunc(GLFMDisplay *display,
+                                     GLFMKeyboardVisibilityChangedFunc func);
+```
+
+```c
+typedef void (*GLFMKeyboardVisibilityChangedFunc)(GLFMDisplay *display,
+                                                  bool visible,
+                                                  double x, double y,
+                                                  double width, double height);
+```
+
+The `x`, `y`, `width`, and `height` parameters describe the keyboard frame in pixels.
+
+<Note>
+  On iPad, if a hardware keyboard is attached, calling `glfmSetKeyboardVisible(true)`
+  will not actually show the virtual keyboard. `glfmIsKeyboardVisible()` always
+  returns `false` on Emscripten and tvOS.
+</Note>
+
+## Clipboard
+
+Read and write the system clipboard using these functions:
+
+```c
+bool glfmHasClipboardText(const GLFMDisplay *display);
+void glfmRequestClipboardText(GLFMDisplay *display, GLFMClipboardTextFunc func);
+bool glfmSetClipboardText(GLFMDisplay *display, const char *string);
+```
+
+Because clipboard access may require a network round-trip (iCloud clipboard) or a browser permission dialog, `glfmRequestClipboardText()` is asynchronous. Your callback is invoked exactly once:
+
+```c
+typedef void (*GLFMClipboardTextFunc)(GLFMDisplay *display, const char *string);
+```
+
+`string` is a null-terminated UTF-8 string valid only for the callback's duration, or `NULL` if the clipboard is empty or unavailable.
+
+```c
+static void onClipboardText(GLFMDisplay *display, const char *text) {
+    if (text) {
+        // Copy text before the callback returns
+        char *copy = strdup(text);
+    }
+}
+
+// Request from a touch/key handler:
+glfmRequestClipboardText(display, onClipboardText);
+```
+
+<Tabs>
+  <Tab title="iOS / macOS">
+    Clipboard operations work normally. iCloud clipboard may introduce a brief
+    async delay.
+  </Tab>
+  <Tab title="tvOS">
+    No clipboard API is available. `glfmHasClipboardText()` always returns
+    `false`; `glfmSetClipboardText()` always returns `false`; the
+    `GLFMClipboardTextFunc` callback is invoked immediately with `NULL`.
+  </Tab>
+  <Tab title="Web (Emscripten)">
+    `glfmHasClipboardText()` returns `true` when the Clipboard API is available,
+    but it cannot detect whether text is actually present until it is requested.
+    `glfmRequestClipboardText()` must be called from within a user-generated
+    event handler on some browsers. Firefox does not support reading from the
+    clipboard.
+  </Tab>
+</Tabs>
